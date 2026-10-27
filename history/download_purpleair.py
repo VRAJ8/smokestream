@@ -131,17 +131,21 @@ def _downloaded_ids(out):
     return {int(p.name) for d in out.glob("raw_avg*") for p in d.iterdir() if p.is_dir() and any(p.iterdir())}
 
 
-def anchored(candidates, monitors_path, per_monitor, radius_km):
+def anchored(candidates, monitors_path, per_monitor, radius_km, already=()):
     """Up to per_monitor sensors around each monitor (closest first, within radius_km),
-    so every monitor gets nearby sensors and each cluster supports neighbour checks."""
+    so every monitor gets nearby sensors and each cluster supports neighbour checks.
+    Sensors in `already` (e.g. downloaded earlier) count toward a monitor's quota,
+    so no points are spent on monitors that are already covered."""
     sites = {}
     with open(monitors_path) as f:
         for r in csv.DictReader(f):
             sites[r["site_id"]] = (float(r["latitude"]), float(r["longitude"]))
-    chosen = {}
+    chosen, have = {}, set(already)
     for site, (lat, lon) in sorted(sites.items()):
         near = sorted((_km(lat, lon, c["latitude"], c["longitude"]), int(c["sensor_index"])) for c in candidates)
-        picks = [idx for d, idx in near if d <= radius_km and idx not in chosen][:per_monitor]
+        in_range = [idx for d, idx in near if d <= radius_km]
+        need = per_monitor - sum(1 for idx in in_range if idx in have)
+        picks = [idx for idx in in_range if idx not in have and idx not in chosen][:max(0, need)]
         for idx in picks:
             chosen[idx] = site
     return chosen
@@ -173,7 +177,7 @@ def cmd_sensors(args):
     by_id = {int(c["sensor_index"]): c for c in candidates}
     if args.near_monitors:
         keep = _downloaded_ids(out) if args.keep_downloaded else set()
-        picks = anchored(candidates, args.near_monitors, args.per_monitor, args.radius_km)
+        picks = anchored(candidates, args.near_monitors, args.per_monitor, args.radius_km, already=keep)
         chosen = [by_id[i] for i in sorted(keep | set(picks)) if i in by_id]
         how = (f"{len(picks)} anchored on monitors ({args.per_monitor} per monitor within {args.radius_km} km)"
                + (f" plus {len(keep - set(picks))} already downloaded" if keep else ""))

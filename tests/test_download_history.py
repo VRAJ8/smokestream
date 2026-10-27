@@ -116,3 +116,13 @@ def test_anchored_sampling_picks_closest_sensors_per_monitor(tmp_path):
     ]
     assert dl.anchored(cands, mon, per_monitor=1, radius_km=3) == {1: "A", 4: "B"}
     assert set(dl.anchored(cands, mon, per_monitor=2, radius_km=3)) == {1, 2, 4}
+
+
+def test_anchored_sampling_skips_monitors_already_covered(tmp_path):
+    mon = tmp_path / "monitors.csv"
+    mon.write_text("site_id,latitude,longitude,hour_start,pm25\nA,37.30,-121.90,0,10\nB,37.80,-122.27,0,10\n")
+    cands = [{"sensor_index": 1, "latitude": 37.301, "longitude": -121.901},
+             {"sensor_index": 2, "latitude": 37.310, "longitude": -121.900},
+             {"sensor_index": 4, "latitude": 37.801, "longitude": -122.271}]
+    # Sensor 2 was downloaded before and already covers A, so only B gets a new sensor.
+    assert dl.anchored(cands, mon, per_monitor=1, radius_km=3, already={2}) == {4: "B"}
