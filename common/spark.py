@@ -24,7 +24,10 @@ def session(app_name, kafka=False):
                .config("spark.ui.showConsoleProgress", "false")
                # Local mode runs everything in the driver JVM, whose default 1 GB heap is
                # too small for the enrichment joins over a full season.
-               .config("spark.driver.memory", os.environ.get("SPARK_DRIVER_MEMORY", "4g")))
+               .config("spark.driver.memory", os.environ.get("SPARK_DRIVER_MEMORY", "4g"))
+               # Paths without a scheme are local files, even if a Hadoop install sets
+               # fs.defaultFS to HDFS (HADOOP_CONF_DIR). Set SMOKESTREAM_FS=hdfs://host:port to use HDFS.
+               .config("spark.hadoop.fs.defaultFS", os.environ.get("SMOKESTREAM_FS", "file:///")))
     if kafka:
         import pyspark
         builder = builder.config("spark.jars.packages", KAFKA_PACKAGE.format(version=pyspark.__version__))

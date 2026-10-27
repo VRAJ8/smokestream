@@ -8,3 +8,4 @@ tabulate         # Markdown tables in the label report
 kafka-python
 pymongo
 pytest
+pyshp            # NOAA HMS smoke shapefiles

@@ -181,6 +181,7 @@ def main():
     parser.add_argument("--speed", type=float, default=0,
                         help="replay speed vs real time (100 = 100x); 0 = as fast as possible")
     parser.add_argument("--seed", type=int, default=226)
+    parser.add_argument("--meta", help="write timing metadata (start time, speed, counts) here, for latency measurement")
     args = parser.parse_args()
 
     profile = None if args.profile == "none" else json.loads(Path(args.profile).read_text())
@@ -202,6 +203,11 @@ def main():
     finally:
         sink.close()
     print(f"Done: {sent:,} messages in {time.time() - start_wall:.1f} s")
+    if args.meta:
+        # Maps simulated arrival time to wall-clock send time: start_wall + (arrival - first_arrival) / speed.
+        Path(args.meta).write_text(json.dumps({"start_wall": start_wall, "first_arrival": first_arrival,
+                                               "speed": args.speed, "messages": sent, "finished_wall": time.time(),
+                                               "sink": args.sink}, indent=2))
 
 
 if __name__ == "__main__":

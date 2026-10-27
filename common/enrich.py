@@ -59,6 +59,7 @@ class EnrichConfig:
     calm_wind_ms: float = 1.0
     upwind_half_angle_deg: float = 45.0
     wind_max_age_s: int = 3 * 3600
+    wind_max_km: float = 60.0
     # Typical publication delays when a source does not report published_at.
     default_delay_s: dict = field(default_factory=lambda: {"fires": 3 * 3600, "plume_cells": 4 * 3600,
                                                            "wind": 15 * 60})
@@ -190,26 +191,32 @@ def add_plumes(hw, plumes, cfg, cutoff_offset_s):
 
 
 def add_wind(hw, wind, cfg, cutoff_offset_s):
+    """Wind from the nearest station that reported in the last wind_max_age_s (within wind_max_km).
+
+    Using only the single nearest station leaves gaps whenever that station is
+    silent, so every station in range is considered and the closest one with a
+    usable report wins (its latest report, if it has several).
+    """
     if wind is None:
         return hw.withColumn("wind_dir_deg", F.lit(None).cast("double")).withColumn("wind_speed_ms", F.lit(None).cast("double"))
     stations = wind.select("station_id", F.col("latitude").alias("st_lat"), F.col("longitude").alias("st_lon")).distinct()
     cells = hw.select("h3").distinct().withColumn("c", _CENTER("h3"))
-    by_distance = Window.partitionBy("h3").orderBy("dist_km", "station_id")
-    nearest = (cells.crossJoin(F.broadcast(stations))
-                    .withColumn("dist_km", _haversine_km(F.col("c")[0], F.col("c")[1], F.col("st_lat"), F.col("st_lon")))
-                    .withColumn("rank", F.row_number().over(by_distance))
-                    .where(F.col("rank") == 1)
-                    .select("h3", "station_id"))
+    in_range = (cells.crossJoin(F.broadcast(stations))
+                     .withColumn("dist_km", _haversine_km(F.col("c")[0], F.col("c")[1], F.col("st_lat"), F.col("st_lon")))
+                     .where(F.col("dist_km") <= cfg.wind_max_km)
+                     .select("h3", "station_id", "dist_km"))
     obs = _available(wind, "wind", "observed_at", cfg, cutoff_offset_s)
+    # Closest station first, then its latest report (struct fields compare in order).
+    best = F.struct(-F.col("dist_km"), F.col("observed_at"), F.col("station_id"))
     latest = (hw.select("h3", "window_end_s")
-                .join(nearest, "h3")
+                .join(in_range, "h3")
                 .join(obs, "station_id")
                 .where((F.col("observed_at") <= F.col("window_end_s"))
                        & (F.col("observed_at") > F.col("window_end_s") - cfg.wind_max_age_s)
                        & _usable(cutoff_offset_s))
                 .groupBy("h3", "window_end_s")
-                .agg(F.max_by("wind_dir_deg", "observed_at").alias("wind_dir_deg"),
-                     F.max_by("wind_speed_ms", "observed_at").alias("wind_speed_ms")))
+                .agg(F.max_by("wind_dir_deg", best).alias("wind_dir_deg"),
+                     F.max_by("wind_speed_ms", best).alias("wind_speed_ms")))
     return hw.join(latest, ["h3", "window_end_s"], "left")
 
 
