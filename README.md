@@ -8,7 +8,8 @@ Team: Vraj Patel, Brandon Moriguchi.
 
 ```
 recorder/    live PurpleAir recorder (one week of data for the arrival-delay profile)
-history/     historical PurpleAir downloader (budgeted, resumable)
+history/     PurpleAir downloader (budgeted, resumable) and the public-data downloader
+             (EPA AQS monitors, NASA FIRMS fires, NOAA HMS plumes, ASOS wind; no keys needed)
 replay/      delay profile builder and the replay tool (history -> Kafka or files)
 common/      shared logic: EPA correction, AQI, Spark transforms, steps 4-5 (enrich),
              context loading, watermark simulator
@@ -143,6 +144,54 @@ This writes, as PNG and PDF (fonts embedded, ready for a journal):
 - `frontier_rmse_ugm3`: decision latency against error for every setting. One color and marker per season (up to three, the colorblind-safe limit for scatter plots), with the Pareto frontier drawn as a line. Choose another error measure with `--metric`, for example `label_disagreement` or `smoke_alert_miss`.
 - `knob_effects`: small multiples, each knob varied alone, one row per metric.
 - `frontier_points.csv` / `.md`: every frontier point as a table, for the paper and for readers who cannot rely on color.
+
+## Real monitors and context (free, no API keys)
+
+```bash
+.venv/bin/python history/download_context.py all --season 2020
+```
+
+This downloads EPA AQS hourly PM2.5, NASA FIRMS VIIRS fire detections, NOAA HMS smoke plumes and airport wind for the season, caches the raw files in `data/raw/`, and writes them to `data/history/<season>/` in the pipeline's formats:
+- `monitors/`: ground truth, never read by the pipelines
+- `context/fires`, `context/plume_cells`, `context/wind`: what the pipelines join against
+
+The EPA server is slow (about 100 KB/s), so the first run takes 10 to 20 minutes per season. Assumptions (plume persistence and publication delays) are listed at the top of the script.
+
+A summary of each season, plus a timeline figure:
+
+```bash
+.venv/bin/python analysis/season_overview.py --seasons 2020,2021,2024 --plot 2020 --compact
+```
+
+## Kafka streaming run (RQ4)
+
+Kafka 4 from Homebrew runs without ZooKeeper. Start a broker in its own terminal:
+
+```bash
+/opt/homebrew/opt/kafka/bin/kafka-server-start /opt/homebrew/etc/kafka/server.properties
+```
+
+```bash
+/opt/homebrew/opt/kafka/bin/kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic purpleair --partitions 4
+```
+
+Start the streaming job, then replay at a fixed speed with `--meta`, and measure:
+
+```bash
+.venv/bin/python spark/streaming_job.py --source kafka --topic purpleair --context data/history/2020/context --out data/out/kafka
+```
+
+```bash
+.venv/bin/python replay/replay.py --history H.csv --sensors S.csv --sink kafka --topic purpleair --speed 300 --meta data/out/kafka_meta.json
+```
+
+```bash
+.venv/bin/python analysis/measure_streaming.py --output data/out/kafka --config w10_wm5_q120_c60_r7 --meta data/out/kafka_meta.json
+```
+
+The first Kafka run downloads Spark's Kafka connector from Maven.
+
+**Hadoop note:** if `HADOOP_CONF_DIR` points at a configuration with `fs.defaultFS=hdfs://...`, Spark would send every path to HDFS. SmokeStream pins the local file system; set `SMOKESTREAM_FS=hdfs://localhost:9000` to use HDFS instead.
 
 ## Historical PurpleAir data
 

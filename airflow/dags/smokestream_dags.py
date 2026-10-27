@@ -99,31 +99,22 @@ def ingest_monitors():
 
 @dag(schedule=None, **COMMON)
 def backfill_fire_seasons():
-    """Manual: historical data for the 2020, 2021 and 2024 seasons (run once)."""
+    """Manual: historical monitors and context for the 2020, 2021 and 2024 seasons (run once).
+
+    Each task runs one step of history/download_context.py, which downloads the
+    public files (cached under data/raw/) and writes data/history/<season>/.
+    """
 
     @task
-    def download_aqs_hourly(year: int):
-        """EPA AQS pre-generated hourly PM2.5 (parameter 88101) for one year.
+    def backfill(season: str, what: str):
+        import sys
+        sys.path.insert(0, str(PROJECT))
+        from history.download_context import COMMANDS
+        COMMANDS[what](season, "bayarea")
 
-        File: https://aqs.epa.gov/aqsweb/airdata/hourly_88101_<year>.zip
-        Keep California sites inside BBOX; same output columns as fetch_airnow,
-        written to data/history/<year>/monitors/monitors.parquet. AQS reports local
-        standard time; convert to UTC (Pacific standard time is UTC-8 all year).
-        """
-        raise NotImplementedError
-
-    @task
-    def download_context_history(year: int):
-        """FIRMS archive (standard-processing 'SP' products), HMS plumes and NWS/ASOS
-        wind for the season window, in the same formats as the live tasks, under
-        data/history/<year>/context/<fires|plume_cells|wind>/. For archives,
-        published_at should reflect when the near-real-time product would have
-        appeared (or be left null), not when we downloaded it."""
-        raise NotImplementedError
-
-    for year in (2020, 2021, 2024):
-        download_aqs_hourly.override(task_id=f"aqs_{year}")(year)
-        download_context_history.override(task_id=f"context_{year}")(year)
+    for season in ("2020", "2021", "2024"):
+        for what in ("monitors", "fires", "plumes", "wind"):
+            backfill.override(task_id=f"{what}_{season}")(season, what)
 
 
 @dag(schedule=timedelta(minutes=5), **COMMON)

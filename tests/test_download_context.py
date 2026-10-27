@@ -35,3 +35,18 @@ def test_measure_streaming_latency():
     assert m["throughput_msgs_per_s"] == 10.0
     assert m["latency_p50_s"] == pytest.approx(3.5)
     assert m["share_under_target"] == 0.5
+
+
+def test_cells_in_ring_fallback_matches_h3(monkeypatch):
+    import h3
+    from history import download_context as dc
+    ring = [(-122.1, 37.2), (-121.7, 37.2), (-121.7, 37.5), (-122.1, 37.5)]  # (lon, lat)
+    region = h3.polygon_to_cells(h3.LatLngPoly([(37.0, -122.3), (37.0, -121.5), (37.7, -121.5), (37.7, -122.3)]), 7)
+    centers = {c: h3.cell_to_latlng(c) for c in region}
+    normal = set(dc.cells_in_ring(ring, centers))
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("H3 rejected the polygon")
+    monkeypatch.setattr(dc, "plume_to_cells", broken)
+    fallback = set(dc.cells_in_ring(ring, centers))
+    assert normal and fallback == normal

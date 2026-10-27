@@ -85,14 +85,14 @@ def season_stats(season, region):
     return stats, mon, shares, fires
 
 
-def plot_season(season, mon, shares, fires, out, formats):
+def plot_season(season, mon, shares, fires, out, formats, size=(7.2, 5.6), suffix=""):
     hourly = mon.groupby("hour_start")["pm25"].agg(["median", "min", "max"]).reset_index()
     hourly["t"] = pd.to_datetime(hourly["hour_start"], unit="s", utc=True).dt.tz_convert("America/Los_Angeles")
     shares = shares.assign(t=shares["day"].dt.tz_convert("America/Los_Angeles"))
     fdaily = (pd.to_datetime(fires["detected_at"], unit="s", utc=True).dt.tz_convert("America/Los_Angeles")
               .dt.floor("D").value_counts().sort_index())
 
-    fig, axes = plt.subplots(3, 1, figsize=(7.2, 5.6), sharex=True, gridspec_kw={"height_ratios": [2.2, 1, 1]})
+    fig, axes = plt.subplots(3, 1, figsize=size, sharex=True, gridspec_kw={"height_ratios": [2.2, 1, 1]})
     ax = axes[0]
     ax.fill_between(hourly["t"], hourly["min"], hourly["max"], color=SERIES[0], alpha=0.12, linewidth=0)
     ax.plot(hourly["t"], hourly["median"], color=SERIES[0], linewidth=1.2)
@@ -125,7 +125,7 @@ def plot_season(season, mon, shares, fires, out, formats):
              fontsize=10.5, fontweight="bold", color=INK)
     fig.tight_layout(rect=(0, 0, 1, 0.965), h_pad=0.8)
     for fmt in formats:
-        fig.savefig(out / f"season_{season}.{fmt}", dpi=300, bbox_inches="tight")
+        fig.savefig(out / f"season_{season}{suffix}.{fmt}", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -136,6 +136,7 @@ def main():
     parser.add_argument("--plot", default="2020", help="season(s) to draw a timeline for, comma-separated")
     parser.add_argument("--out", default=str(ROOT / "data" / "out" / "overview"))
     parser.add_argument("--formats", default="png,pdf")
+    parser.add_argument("--compact", action="store_true", help="also draw a shorter timeline for page-limited reports")
     args = parser.parse_args()
 
     out = Path(args.out)
@@ -147,6 +148,8 @@ def main():
         rows.append(stats)
         if season in args.plot.split(","):
             plot_season(season, mon, shares, fires, out, args.formats.split(","))
+            if args.compact:
+                plot_season(season, mon, shares, fires, out, args.formats.split(","), size=(7.2, 3.7), suffix="_compact")
     table = pd.DataFrame(rows)
     table.to_csv(out / "season_overview.csv", index=False)
     (out / "season_overview.md").write_text(table.to_markdown(index=False) + "\n")

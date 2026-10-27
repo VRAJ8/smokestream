@@ -181,6 +181,26 @@ def _cut_y(a, b, y):
     return (a[0] + t * (b[0] - a[0]), y)
 
 
+def point_in_ring(lon, lat, ring):
+    """Ray casting: is (lon, lat) inside the (lon, lat) ring?"""
+    inside, j = False, len(ring) - 1
+    for i in range(len(ring)):
+        (xi, yi), (xj, yj) = ring[i], ring[j]
+        if (yi > lat) != (yj > lat) and lon < (xj - xi) * (lat - yi) / (yj - yi) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
+def cells_in_ring(ring, region_centers):
+    """H3 cells whose centers fall inside the ring. polygon_to_cells uses the same rule
+    (center containment); this fallback handles the rare rings H3 rejects."""
+    try:
+        return plume_to_cells([(lat, lon) for lon, lat in ring], H3_RES)
+    except Exception:
+        return [c for c, (lat, lon) in region_centers.items() if point_in_ring(lon, lat, ring)]
+
+
 def hms_time(value):
     """'2020253 1300' (year, day of year, HHMM, UTC) -> UNIX seconds."""
     value = value.strip()
@@ -193,6 +213,10 @@ def cmd_plumes(season, region):
     bbox = REGIONS[region]
     rank = {"Light": 1, "Medium": 2, "Heavy": 3}
     cells = {}  # (cell, day) -> [valid_start, valid_end, density_rank, published_at]
+    import h3
+    west, south, east, north = bbox
+    region = h3.polygon_to_cells(h3.LatLngPoly([(south, west), (south, east), (north, east), (north, west)]), H3_RES)
+    region_centers = {c: h3.cell_to_latlng(c) for c in region}
     day = datetime.fromtimestamp(start, timezone.utc) - timedelta(days=1)
     missing = 0
     while day.timestamp() < end:
@@ -222,7 +246,7 @@ def cmd_plumes(season, region):
                     ring = clip_ring(shape.points[parts[i]:parts[i + 1]], bbox)
                     if len(ring) < 3:
                         continue
-                    for cell in plume_to_cells([(lat, lon) for lon, lat in ring], H3_RES):
+                    for cell in cells_in_ring(ring, region_centers):
                         key = (cell, tag)
                         cur = cells.get(key)
                         vs, ve, pub = t0, t1 + PLUME_PERSIST_S, t1 + PLUME_PUBLISH_DELAY_S
