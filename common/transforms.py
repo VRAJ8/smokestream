@@ -60,18 +60,8 @@ def validate(df: DataFrame) -> DataFrame:
 
 
 def epa_correct_expr(pa: Column, rh: Column) -> Column:
-    """Column version of airquality.epa_correct."""
-    w1 = pa / 20 - 1.5
-    w2 = pa / 50 - 4.2
-    value = (
-        F.when(pa < 30, 0.524 * pa - 0.0862 * rh + 5.75)
-         .when(pa < 50, (0.786 * w1 + 0.524 * (1 - w1)) * pa - 0.0862 * rh + 5.75)
-         .when(pa < 210, 0.786 * pa - 0.0862 * rh + 5.75)
-         .when(pa < 260, (0.69 * w2 + 0.786 * (1 - w2)) * pa - 0.0862 * rh * (1 - w2)
-               + 2.966 * w2 + 5.75 * (1 - w2) + 8.84e-4 * pa * pa * w2)
-         .otherwise(2.966 + 0.69 * pa + 8.84e-4 * pa * pa)
-    )
-    return F.greatest(F.lit(0.0), value)
+    """Column version of airquality.epa_correct (EPA U.S.-wide linear correction on cf_1)."""
+    return F.greatest(F.lit(0.0), 0.524 * pa - 0.0862 * rh + 5.75)
 
 
 def correct(df: DataFrame) -> DataFrame:

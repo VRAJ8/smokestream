@@ -7,11 +7,16 @@ def test_correction_low_range_matches_us_wide_equation():
     assert aq.epa_correct(20, 50) == pytest.approx(0.524 * 20 - 0.0862 * 50 + 5.75)
 
 
+def test_correction_is_linear_at_all_concentrations():
+    # The U.S.-wide form has no breakpoints: same slope in clean air and in heavy smoke.
+    assert aq.epa_correct(300, 40) == pytest.approx(0.524 * 300 - 0.0862 * 40 + 5.75)
+
+
 @pytest.mark.parametrize("breakpoint", [30, 50, 210, 260])
 @pytest.mark.parametrize("rh", [10, 50, 90])
-def test_correction_is_continuous_at_breakpoints(breakpoint, rh):
+def test_extended_variant_is_continuous_at_breakpoints(breakpoint, rh):
     eps = 1e-9
-    assert aq.epa_correct(breakpoint - eps, rh) == pytest.approx(aq.epa_correct(breakpoint, rh), abs=1e-6)
+    assert aq.epa_correct_extended(breakpoint - eps, rh) == pytest.approx(aq.epa_correct_extended(breakpoint, rh), abs=1e-6)
 
 
 def test_correction_never_negative():
