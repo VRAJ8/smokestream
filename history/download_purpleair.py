@@ -108,35 +108,90 @@ def rows_per_sensor(start, end, average):
 
 # ---------- commands ----------
 
+SENSOR_FIELDS = ["sensor_index", "latitude", "longitude", "date_created", "last_seen"]
+
+
+def _km(lat1, lon1, lat2, lon2):
+    import math
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    a = (math.sin((p2 - p1) / 2) ** 2
+         + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2)
+    return 12742 * math.asin(math.sqrt(a))
+
+
+def _write_sensors(path, sensors):
+    with path.open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=SENSOR_FIELDS, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(sorted(sensors, key=lambda s: int(s["sensor_index"])))
+
+
+def _downloaded_ids(out):
+    """Sensors that already have history chunks on disk (any resolution)."""
+    return {int(p.name) for d in out.glob("raw_avg*") for p in d.iterdir() if p.is_dir() and any(p.iterdir())}
+
+
+def anchored(candidates, monitors_path, per_monitor, radius_km):
+    """Up to per_monitor sensors around each monitor (closest first, within radius_km),
+    so every monitor gets nearby sensors and each cluster supports neighbour checks."""
+    sites = {}
+    with open(monitors_path) as f:
+        for r in csv.DictReader(f):
+            sites[r["site_id"]] = (float(r["latitude"]), float(r["longitude"]))
+    chosen = {}
+    for site, (lat, lon) in sorted(sites.items()):
+        near = sorted((_km(lat, lon, c["latitude"], c["longitude"]), int(c["sensor_index"])) for c in candidates)
+        picks = [idx for d, idx in near if d <= radius_km and idx not in chosen][:per_monitor]
+        for idx in picks:
+            chosen[idx] = site
+    return chosen
+
+
 def cmd_sensors(args):
     start_s, end_s = args.start or SEASONS[args.season][0], args.end or SEASONS[args.season][1]
     start, end = ts(start_s), ts(end_s)
-    west, south, east, north = REGIONS[args.region]
-    payload = pa.get("/sensors", {
-        "fields": "latitude,longitude,date_created,last_seen",
-        "location_type": 0,   # outdoor
-        "max_age": 0,         # include sensors that have since gone offline
-        "nwlng": west, "nwlat": north, "selng": east, "selat": south,
-    })
-    candidates = [s for s in pa.rows_as_dicts(payload)
-                  if s.get("date_created") and s["date_created"] < end
-                  and s.get("last_seen") and s["last_seen"] >= start]
-    random.Random(args.seed).shuffle(candidates)
-    chosen = sorted(candidates[:args.sample] if args.sample else candidates, key=lambda s: s["sensor_index"])
-
     out = season_dir(args.season)
     out.mkdir(parents=True, exist_ok=True)
-    with (out / "sensors.csv").open("w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(["sensor_index", "latitude", "longitude", "date_created", "last_seen"])
-        for s in chosen:
-            w.writerow([s["sensor_index"], s["latitude"], s["longitude"], s["date_created"], s["last_seen"]])
+    cand_path = out / f"sensors_candidates_{args.region}.csv"
+    if cand_path.exists() and args.reuse_candidates:
+        with cand_path.open() as f:
+            everyone = [{k: float(v) if k != "sensor_index" else int(v) for k, v in r.items()} for r in csv.DictReader(f)]
+    else:
+        west, south, east, north = REGIONS[args.region]
+        payload = pa.get("/sensors", {
+            "fields": "latitude,longitude,date_created,last_seen",
+            "location_type": 0,   # outdoor
+            "max_age": 0,         # include sensors that have since gone offline
+            "nwlng": west, "nwlat": north, "selng": east, "selat": south,
+        })
+        everyone = pa.rows_as_dicts(payload)
+        _write_sensors(cand_path, everyone)  # saved so re-sampling costs no points
+    candidates = [s for s in everyone
+                  if s.get("date_created") and s["date_created"] < end
+                  and s.get("last_seen") and s["last_seen"] >= start]
+
+    by_id = {int(c["sensor_index"]): c for c in candidates}
+    if args.near_monitors:
+        keep = _downloaded_ids(out) if args.keep_downloaded else set()
+        picks = anchored(candidates, args.near_monitors, args.per_monitor, args.radius_km)
+        chosen = [by_id[i] for i in sorted(keep | set(picks)) if i in by_id]
+        how = (f"{len(picks)} anchored on monitors ({args.per_monitor} per monitor within {args.radius_km} km)"
+               + (f" plus {len(keep - set(picks))} already downloaded" if keep else ""))
+    else:
+        random.Random(args.seed).shuffle(candidates)
+        chosen = candidates[:args.sample] if args.sample else candidates
+        how = f"{len(chosen)} at random (seed {args.seed})"
+
+    if (out / "sensors.csv").exists():
+        (out / "sensors.csv").replace(out / "sensors_previous.csv")
+    _write_sensors(out / "sensors.csv", chosen)
     (out / "season.json").write_text(json.dumps({
         "season": args.season, "start": start, "end": end, "start_date": start_s, "end_date": end_s,
         "region": args.region, "sample": args.sample, "seed": args.seed, "candidates": len(candidates),
+        "selection": "monitor-anchored" if args.near_monitors else "random",
     }, indent=2))
     print(f"{len(candidates)} outdoor sensors in {args.region} were active during {start_s} to {end_s}; "
-          f"kept {len(chosen)}.")
+          f"kept {len(chosen)}: {how}.")
     print(f"Saved {out / 'sensors.csv'}. Note: locations are today's; sensors that moved since may be off.")
 
 
@@ -245,9 +300,9 @@ def cmd_merge(args):
                 w.writerow([t, sensor, *rows[(t, sensor)]])
             total += len(rows)
 
-    with (out_dir / "sensors.csv").open() as f:
-        n_sensors = sum(1 for _ in csv.DictReader(f))
-    print(f"Wrote {out_path} ({total:,} rows from {n_sensors} sensors).")
+    with out_path.open() as f:
+        n_sensors = len({r["sensor_index"] for r in csv.DictReader(f)})
+    print(f"Wrote {out_path} ({total:,} rows from {n_sensors} sensors with data).")
     if missing:
         print(f"  {missing} sensor-chunks are not downloaded yet; they are simply absent from the file.")
     print(f"Use with: --history {out_path} --sensors {out_dir / 'sensors.csv'}")
@@ -282,6 +337,12 @@ def main():
     p.add_argument("--seed", type=int, default=226)
     p.add_argument("--start", help="override season start, YYYY-MM-DD (e.g. a peak smoke week)")
     p.add_argument("--end", help="override season end, YYYY-MM-DD (exclusive)")
+    p.add_argument("--near-monitors", help="monitor CSV: pick sensors around each monitor instead of at random")
+    p.add_argument("--per-monitor", type=int, default=1)
+    p.add_argument("--radius-km", type=float, default=3.0)
+    p.add_argument("--keep-downloaded", action="store_true", help="also keep sensors already downloaded")
+    p.add_argument("--reuse-candidates", action="store_true",
+                   help="reuse the saved candidate list instead of calling the API (no points)")
 
     for name, func in [("estimate", cmd_estimate), ("download", cmd_download),
                        ("merge", cmd_merge), ("status", cmd_status)]:

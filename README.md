@@ -229,6 +229,14 @@ History costs points per row and per field: PurpleAir's own example is 531,000 p
 
 The output is `data/history/2020/history_avg10.csv` and `data/history/2020/sensors.csv`. Seasons are 2020 (Aug 1 to Sep 30), 2021 and 2024 (Jul 1 to Sep 15, both including the Fourth of July).
 
+**Monitor-anchored sampling (recommended for the monitor evaluation):** a random sample leaves most monitors with no sensor nearby (in 2020, 27 random sensors covered only 5 of 20 monitors within 5 km). Pick the closest sensors around each monitor instead, keeping any already downloaded:
+
+```bash
+.venv/bin/python history/download_purpleair.py sensors --season 2020 --start 2020-08-16 --end 2020-09-16 --near-monitors data/history/2020/monitors/monitors.csv --per-monitor 1 --radius-km 3 --keep-downloaded
+```
+
+The candidate list is saved, so later re-sampling with `--reuse-candidates` costs no points.
+
 **Resolution vs. cost:** `--average 10` (10-minute averages) is the default. `--average 0` gives the raw 2-minute data that 2-minute windows need, but costs about 5 times more. PurpleAir's terms do not allow redistributing the raw data, so the published benchmark should share code, sensor IDs, time ranges and our labels, not the readings themselves.
 
 ## Methodology notes (these matter for the paper)
@@ -238,6 +246,7 @@ The output is `data/history/2020/history_avg10.csv` and `data/history/2020/senso
 - **Spark's late-data rule (found by that test).** Spark drops a reading only if its window's end is at or before the *previous* batch's watermark, not the current one. That makes it slightly more lenient than the documentation suggests. The simulator follows the engine's actual behavior.
 - **EPA correction input.** We use the `cf_1` channels, as in the papers we cite. Some tools use `cf_atm`. The Milestone 2 check (our corrected values vs. EPA-corrected values) settles this on real data.
 - **2024 AQI breakpoints** (Good ends at 9.0 µg/m³) are used throughout.
+- **Averaged history arrives after its interval.** A 10-minute average stamped 20:00 covers 20:00 to 20:10, so the replay adds the interval to every arrival (`--interval-seconds 600`; `run_season.py` sets it).
 - **Context is judged at decision time.** A fire detection, plume or wind reading counts only if it was published and picked up by an Airflow refresh by `window_end + watermark`. The hindsight baseline sees all context. This is how the context-freshness knob takes effect, and the simulator and streaming job use the same cutoff, so they still match exactly.
 - **The neighbour check is causal.** A sensor is excluded only after being off from its neighbours for most of the last `qc_history` minutes, using past windows only, in streaming and batch alike. Short history removes faulty sensors fast but also hides real local spikes and the leading edge of a smoke front.
 - **Measuring the QC knob needs monitors.** Comparing a stream with a baseline that uses the same QC setting cancels out the QC effect itself, so its real effect is measured against regulatory monitors (`run_sweep.py --monitors`). On synthetic data a 30-minute history beats a 6-hour one, because it drops a drifting sensor sooner.

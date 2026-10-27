@@ -92,16 +92,21 @@ def read_history(path, sensors):
                    "pm1": as_float(row[cols["pm1"]]), "rh": as_float(row[cols["rh"]])}
 
 
-def arrivals(readings, model):
-    """Yield readings in arrival order. Arrival is never before event time."""
+def arrivals(readings, model, interval_s=0.0):
+    """Yield readings in arrival order. Arrival is never before event time.
+
+    interval_s: for averaged history (e.g. 10-minute averages stamped at the start
+    of their interval), a reading cannot exist until its interval has ended, so it
+    arrives at event_time + interval_s + delay.
+    """
     heap, seq = [], 0
     for r in readings:
         if model.dropped(r["sensor_index"], r["event_time"]):
             continue
         # Nothing read later can arrive before this reading's event time.
-        while heap and heap[0][0] <= r["event_time"]:
+        while heap and heap[0][0] <= r["event_time"] + interval_s:
             yield heapq.heappop(heap)[2]
-        r["arrival_time"] = round(r["event_time"] + model.delay(), 3)
+        r["arrival_time"] = round(r["event_time"] + interval_s + model.delay(), 3)
         heapq.heappush(heap, (r["arrival_time"], seq, r))
         seq += 1
     while heap:
@@ -181,6 +186,8 @@ def main():
     parser.add_argument("--speed", type=float, default=0,
                         help="replay speed vs real time (100 = 100x); 0 = as fast as possible")
     parser.add_argument("--seed", type=int, default=226)
+    parser.add_argument("--interval-seconds", type=float, default=0,
+                        help="averaging interval of the history (600 for 10-minute averages); added to arrivals")
     parser.add_argument("--meta", help="write timing metadata (start time, speed, counts) here, for latency measurement")
     args = parser.parse_args()
 
@@ -190,7 +197,7 @@ def main():
 
     sent, start_wall, first_arrival = 0, time.time(), None
     try:
-        for msg in arrivals(read_history(args.history, load_sensors(args.sensors)), model):
+        for msg in arrivals(read_history(args.history, load_sensors(args.sensors)), model, args.interval_seconds):
             if args.speed > 0:
                 first_arrival = first_arrival if first_arrival is not None else msg["arrival_time"]
                 wait = start_wall + (msg["arrival_time"] - first_arrival) / args.speed - time.time()

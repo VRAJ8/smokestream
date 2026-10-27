@@ -56,3 +56,10 @@ def test_replay_cli_writes_json_files(tmp_path):
     times = [m["arrival_time"] for m in lines]
     assert times == sorted(times)
     assert set(lines[0]) == {"sensor_index", "event_time", "arrival_time", "lat", "lon", "pm25_a", "pm25_b", "pm1", "rh"}
+
+
+def test_averaged_history_arrives_after_its_interval_ends():
+    out = list(arrivals(readings(n_sensors=2, n_steps=50, step=600), DelayModel(None, random.Random(0)), 600))
+    assert all(r["arrival_time"] == r["event_time"] + 600 for r in out)
+    times = [r["arrival_time"] for r in out]
+    assert times == sorted(times)

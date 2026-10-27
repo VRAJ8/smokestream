@@ -59,6 +59,9 @@ def main():
     parser.add_argument("--points-per-row", type=float, default=6.0)
     parser.add_argument("--profile", choices=sorted(PROFILES), default="typical",
                         help="delay profile to use if data/delay_profile.json does not exist")
+    parser.add_argument("--delay-profile", type=Path,
+                        help="use this delay profile file instead (e.g. one built from a partial recording); "
+                             "its file name becomes the run's profile tag")
     parser.add_argument("--grid", default="watermark,qc_history")
     args = parser.parse_args()
 
@@ -88,7 +91,9 @@ def main():
 
     # 5. replay with a measured or an assumed delay profile
     measured = ROOT / "data" / "delay_profile.json"
-    if measured.exists():
+    if args.delay_profile:
+        profile_path, profile_tag = args.delay_profile, args.delay_profile.stem.replace("_", "-")
+    elif measured.exists():
         profile_path, profile_tag = measured, "measured"
     else:
         profile_path, profile_tag = out / f"profile_{args.profile}.json", f"assumed-{args.profile}"
@@ -98,7 +103,7 @@ def main():
     replay = out / f"replay_{profile_tag}"
     if not replay.exists():
         run("replay/replay.py", "--history", merged, "--sensors", hist / "sensors.csv", "--profile", profile_path,
-            "--out", replay, "--file-seconds", 60)
+            "--out", replay, "--file-seconds", 60, "--interval-seconds", args.average * 60)
 
     # 6. sweep, scored against monitors. 10-minute history means the smallest window is 10.
     label = f"{s}-{profile_tag}"

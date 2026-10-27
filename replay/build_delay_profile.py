@@ -8,8 +8,9 @@ Reads data/live/ and writes data/delay_profile.json with:
   outage_durations_s     observed outage lengths, sampled from during replay
 
 Only pairs of consecutive successful polls taken a normal interval apart are
-used, so time when the recorder itself was down (laptop asleep) never counts
-as a sensor outage.
+used: gaps from the recorder itself being down (laptop asleep) never count as a
+sensor outage, and polls squeezed in between scheduled ones (a manual "once")
+are too close together to judge whether a sensor went quiet.
 
 Usage: python replay/build_delay_profile.py [--live-dir data/live] [--out data/delay_profile.json]
 """
@@ -53,7 +54,7 @@ def build(live_dir, poll_seconds):
     pairs = []
     for p, q in zip(polls, polls[1:]):
         gap = float(q["poll_epoch"]) - float(p["poll_epoch"])
-        if gap <= 1.5 * poll_seconds:
+        if 0.5 * poll_seconds <= gap <= 1.5 * poll_seconds:
             pairs.append((p["poll_epoch"], q["poll_epoch"], gap))
 
     # A sensor is in an outage while its last_seen does not advance between polls.

@@ -103,3 +103,16 @@ def test_max_requests_stops_for_a_cost_check(fake_api, monkeypatch):
 def test_iso_timestamps_are_accepted():
     assert dl.to_epoch("2020-08-01T00:00:00Z") == START_2020
     assert dl.to_epoch("1596240000") == START_2020
+
+
+def test_anchored_sampling_picks_closest_sensors_per_monitor(tmp_path):
+    mon = tmp_path / "monitors.csv"
+    mon.write_text("site_id,latitude,longitude,hour_start,pm25\nA,37.30,-121.90,0,10\nB,37.80,-122.27,0,10\n")
+    cands = [
+        {"sensor_index": 1, "latitude": 37.301, "longitude": -121.901},  # ~0.1 km from A
+        {"sensor_index": 2, "latitude": 37.310, "longitude": -121.900},  # ~1.1 km from A
+        {"sensor_index": 3, "latitude": 37.400, "longitude": -121.900},  # ~11 km from A: too far
+        {"sensor_index": 4, "latitude": 37.801, "longitude": -122.271},  # next to B
+    ]
+    assert dl.anchored(cands, mon, per_monitor=1, radius_km=3) == {1: "A", 4: "B"}
+    assert set(dl.anchored(cands, mon, per_monitor=2, radius_km=3)) == {1, 2, 4}
