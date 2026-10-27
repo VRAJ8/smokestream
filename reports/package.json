@@ -1,0 +1,5 @@
+{
+  "name": "smokestream-reports",
+  "private": true,
+  "dependencies": { "docx": "^9" }
+}
