@@ -1,0 +1,10 @@
+# Python 3.12 (PySpark does not support 3.14 yet). Spark also needs Java 17+.
+pyspark>=4.2,<5
+pandas<3          # PySpark 4.2 warns on pandas 3
+pyarrow
+h3>=4
+matplotlib       # paper figures
+tabulate         # Markdown tables in the label report
+kafka-python
+pymongo
+pytest
