@@ -16,17 +16,26 @@ Example query (mongosh), hexagons within 5 km of SJSU:
 
 import os
 import sys
+from pathlib import Path
 
-from pymongo import ASCENDING, GEOSPHERE, MongoClient
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from pymongo import ASCENDING, GEOSPHERE, MongoClient  # noqa: E402
+
+from common.purpleair import load_env  # noqa: E402
 
 TTL_SECONDS = 24 * 3600
 
 
 def main():
+    load_env(ROOT)
     uri = os.environ.get("MONGODB_URI")
     if not uri:
-        sys.exit("Set MONGODB_URI (your Atlas connection string) first.")
-    with MongoClient(uri) as client:
+        sys.exit("Set MONGODB_URI (your Atlas connection string) in .env first.")
+    with MongoClient(uri, serverSelectionTimeoutMS=10000) as client:
+        client.admin.command("ping")
+        print("Connected to MongoDB.")
         hexes = client[os.environ.get("MONGODB_DB", "smokestream")]["hex_state"]
         hexes.create_index([("h3", ASCENDING)], unique=True, name="h3_unique")
         hexes.create_index([("location", GEOSPHERE)], name="location_2dsphere")

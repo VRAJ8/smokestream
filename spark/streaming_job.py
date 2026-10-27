@@ -29,6 +29,7 @@ import pandas as pd  # noqa: E402
 from pyspark.sql import functions as F  # noqa: E402
 
 from common.context import load_context  # noqa: E402
+from common.purpleair import load_env  # noqa: E402
 from common.enrich import EnrichConfig, enrich, to_output  # noqa: E402
 from common.spark import session  # noqa: E402
 from common.transforms import MESSAGE_SCHEMA, SENSOR_WINDOW_SCHEMA, sensor_windows  # noqa: E402
@@ -95,6 +96,7 @@ def main():
     cfg = EnrichConfig(qc_history_minutes=args.qc_history, context_refresh_minutes=args.context_refresh)
     spark = session(f"smokestream-stream-{config_id}", kafka=args.source == "kafka")
     windows = sensor_windows(read_stream(spark, args), args.h3_res, args.window, args.watermark)
+    load_env(ROOT)
     mongo_uri = os.environ.get("MONGODB_URI")
 
     state_path = Path(args.out) / "_qc_state" / f"{config_id}.parquet"
