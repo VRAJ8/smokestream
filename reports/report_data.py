@@ -14,7 +14,10 @@ for s in seasons:
         if k in s: s[k] = int(s[k])
 have = [s for s in seasons if not s.get("missing")]
 note = sys.argv[3] if len(sys.argv) > 3 else ""
+live = root / "data/out/demo_live/measure.json"  # mongo/demo_live.sh
 json.dump({"seasons": seasons, "kafka": json.load(open(root / "data/out/kafka_measure.json")),
+           "live": json.load(open(live)) if live.exists() else None,
+           "live_split": json.load(open(live.with_name("latency_split.json"))) if live.exists() else None,
            "capacity": 14500, "tests": int(sys.argv[4]) if len(sys.argv) > 4 else 72, "season_note": note},
           open(out, "w"), indent=1)
 print("seasons with data:", [s["season"] for s in have])

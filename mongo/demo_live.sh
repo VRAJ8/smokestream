@@ -53,5 +53,8 @@ wait $REPLAY
 sleep 30  # let the job finish the last few batches
 echo; $PY mongo/query_live.py summary
 echo; $PY mongo/query_live.py near
-echo; $PY analysis/measure_streaming.py --output $OUT/stream --config w10_wm5_q120_c60_r7 --meta $OUT/replay_meta.json
+echo; $PY analysis/measure_streaming.py --output $OUT/stream --config w10_wm5_q120_c60_r7 --meta $OUT/replay_meta.json \
+  | tee $OUT/measure.json
+echo; $PY analysis/latency_split.py --output $OUT/stream --config w10_wm5_q120_c60_r7 --meta $OUT/replay_meta.json \
+  | tee $OUT/latency_split.json
 echo; echo "Done. Parquet output in $OUT/stream, logs in $OUT."

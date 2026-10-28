@@ -226,9 +226,11 @@ def main():
     print(f"Done: {sent:,} messages in {time.time() - start_wall:.1f} s")
     if args.meta:
         # Maps simulated arrival time to wall-clock send time: start_wall + (arrival - first_arrival) / speed.
+        # The replay inputs let analysis/latency_split.py redraw the same arrivals.
+        inputs = {k: getattr(args, k) for k in ("history", "sensors", "profile", "seed", "interval_seconds", "start", "end")}
         Path(args.meta).write_text(json.dumps({"start_wall": start_wall, "first_arrival": first_arrival,
                                                "speed": args.speed, "messages": sent, "finished_wall": time.time(),
-                                               "sink": args.sink}, indent=2))
+                                               "sink": args.sink, "inputs": inputs}, indent=2))
 
 
 if __name__ == "__main__":
