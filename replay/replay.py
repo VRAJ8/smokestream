@@ -13,10 +13,14 @@ wait in a heap only until no later reading can arrive before them.
 Usage:
   python replay/replay.py --history H.csv --sensors S.csv --sink files --out data/replay/run1 --file-seconds 60
   python replay/replay.py --history H.csv --sensors S.csv --sink kafka --topic purpleair --speed 100
+
+--start/--end replay only a slice of arrival time. Delays are drawn for the
+whole history either way, so a slice matches the same hours of a full run.
 """
 
 import argparse
 import csv
+from datetime import datetime, timezone
 import heapq
 import json
 import os
@@ -171,6 +175,10 @@ class KafkaSink:
         self.producer.close()
 
 
+def utc_seconds(text):
+    return datetime.fromisoformat(text).replace(tzinfo=timezone.utc).timestamp()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--history", required=True, help="PurpleAir history CSV, sorted by time_stamp")
@@ -189,6 +197,8 @@ def main():
     parser.add_argument("--interval-seconds", type=float, default=0,
                         help="averaging interval of the history (600 for 10-minute averages); added to arrivals")
     parser.add_argument("--meta", help="write timing metadata (start time, speed, counts) here, for latency measurement")
+    parser.add_argument("--start", type=utc_seconds, help="first arrival time to send, UTC (e.g. 2020-09-11T13:00)")
+    parser.add_argument("--end", type=utc_seconds, help="stop before this arrival time, UTC")
     args = parser.parse_args()
 
     profile = None if args.profile == "none" else json.loads(Path(args.profile).read_text())
@@ -198,6 +208,10 @@ def main():
     sent, start_wall, first_arrival = 0, time.time(), None
     try:
         for msg in arrivals(read_history(args.history, load_sensors(args.sensors)), model, args.interval_seconds):
+            if args.start is not None and msg["arrival_time"] < args.start:
+                continue
+            if args.end is not None and msg["arrival_time"] >= args.end:
+                break
             if args.speed > 0:
                 first_arrival = first_arrival if first_arrival is not None else msg["arrival_time"]
                 wait = start_wall + (msg["arrival_time"] - first_arrival) / args.speed - time.time()

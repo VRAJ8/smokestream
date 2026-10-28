@@ -56,10 +56,11 @@ def epa_correct(pa, rh):
     relative humidity in percent. Floored at 0, since the RH term can push
     clean-air values slightly negative.
 
-    Validated on real data: against 2,562 monitor-hours in the 2020 Bay Area
-    season this linear form gave bias +0.5 ug/m3 and a sensor/monitor ratio of
-    1.00 in smoke, while epa_correct_extended() on the same cf_1 input
-    overestimated smoke by 61%.
+    Validated on real data: against 7,890 monitor-hours at 16 monitors in the
+    2020 Bay Area season this linear form gave bias -0.6 ug/m3, R^2 0.83 and a
+    sensor/monitor ratio of 0.90-1.12 in every concentration band, while
+    epa_correct_extended() on the same cf_1 input overestimated smoke by 46-67%
+    (analysis/compare_corrections.py).
     """
     return max(0.0, 0.524 * pa - 0.0862 * rh + 5.75)
 
@@ -68,7 +69,7 @@ def epa_correct_extended(pa, rh):
     """Piecewise "extended" correction as published by third-party tools.
 
     Kept for comparison only. Its segments above 30 ug/m3 appear to expect the
-    cf_atm channel; fed cf_1, it overestimated 2020 smoke by about 1.6x.
+    cf_atm channel; fed cf_1, it overestimated 2020 smoke by 1.5-1.7x.
     """
     if pa < 30:
         value = 0.524 * pa - 0.0862 * rh + 5.75

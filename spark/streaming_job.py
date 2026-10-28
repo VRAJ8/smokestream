@@ -46,23 +46,27 @@ def read_stream(spark, args):
     return spark.readStream.schema(MESSAGE_SCHEMA).option("maxFilesPerTrigger", args.files_per_trigger).json(args.input)
 
 
-def mongo_upsert(rows, uri):
+def mongo_upsert(rows, collection):
     """Keep one document per hexagon with its most recent finalized window.
 
     The first set of updates replaces a hexagon's document only if the new window
-    is later; the second inserts hexagons seen for the first time.
+    is later; the second inserts hexagons seen for the first time. A batch can
+    finalize more than one window, so only each hexagon's latest row is written.
     """
     import h3
-    from pymongo import MongoClient, UpdateOne
+    from pymongo import UpdateOne
+    latest = {}
     for r in rows:
+        if r["h3"] not in latest or r["window_end"] > latest[r["h3"]]["window_end"]:
+            latest[r["h3"]] = r
+    for r in latest.values():
         lat, lon = h3.cell_to_latlng(r["h3"])
         r["location"] = {"type": "Point", "coordinates": [lon, lat]}  # GeoJSON order is lon, lat
     ops = [UpdateOne({"h3": r["h3"], "window_end": {"$lt": r["window_end"]}},
-                     {"$set": r}, upsert=False) for r in rows]
-    ops += [UpdateOne({"h3": r["h3"]}, {"$setOnInsert": r}, upsert=True) for r in rows]
+                     {"$set": r}, upsert=False) for r in latest.values()]
+    ops += [UpdateOne({"h3": r["h3"]}, {"$setOnInsert": r}, upsert=True) for r in latest.values()]
     if ops:
-        with MongoClient(uri) as client:
-            client[os.environ.get("MONGODB_DB", "smokestream")]["hex_state"].bulk_write(ops, ordered=True)
+        collection.bulk_write(ops, ordered=True)
 
 
 def to_spark(spark, frame):
@@ -97,7 +101,10 @@ def main():
     spark = session(f"smokestream-stream-{config_id}", kafka=args.source == "kafka")
     windows = sensor_windows(read_stream(spark, args), args.h3_res, args.window, args.watermark)
     load_env(ROOT)
-    mongo_uri = os.environ.get("MONGODB_URI")
+    hex_state = None
+    if os.environ.get("MONGODB_URI"):
+        from pymongo import MongoClient
+        hex_state = MongoClient(os.environ["MONGODB_URI"])[os.environ.get("MONGODB_DB", "smokestream")]["hex_state"]
 
     state_path = Path(args.out) / "_qc_state" / f"{config_id}.parquet"
     state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -121,8 +128,8 @@ def main():
                .withColumn("batch_id", F.lit(batch_id))
                .withColumn("emitted_at", F.current_timestamp()))
         out.write.mode("append").partitionBy("config_id").parquet(args.out)
-        if mongo_uri:
-            mongo_upsert([r.asDict() for r in out.drop("batch_id").collect()], mongo_uri)
+        if hex_state is not None:
+            mongo_upsert([r.asDict() for r in out.drop("batch_id").collect()], hex_state)
 
         newest = all_sw["window_end_s"].max()
         state["history"] = all_sw[all_sw["window_end_s"] > newest - keep_s]
