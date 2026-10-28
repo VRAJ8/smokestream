@@ -1,3 +1,4 @@
+import pandas as pd
 import pytest
 
 from common import airquality as aq
@@ -49,3 +50,11 @@ def test_categories():
     assert aq.aqi_category(50) == "Good"
     assert aq.aqi_category(151) == "Unhealthy"
     assert aq.aqi_category(500) == "Hazardous"
+
+
+def test_vectorized_mask_matches_reference_checks():
+    rows = [(10, 14, 50), (100, 106, 50), (10, 30, 50), (0, 0, 50), (None, 5, 50), (5, 5, None),
+            (-1, 5, 50), (5, 1200, 50), (5, 5, 101), (0, 4, 20), (0, 6, 20)]
+    a, b, rh = (pd.Series([r[i] for r in rows], dtype=float) for i in range(3))
+    expected = [aq.is_valid(*(None if pd.isna(v) else v for v in r)) and aq.ab_agree(r[0], r[1]) for r in rows]
+    assert aq.valid_ab_mask(a, b, rh).tolist() == expected

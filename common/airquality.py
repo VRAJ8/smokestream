@@ -49,6 +49,16 @@ def ab_agree(a, b):
     return diff <= AB_ABS_LIMIT or pct <= AB_PCT_LIMIT
 
 
+def valid_ab_mask(a, b, rh):
+    """is_valid() and ab_agree() together, for pandas Series of readings."""
+    ok = a.notna() & b.notna() & rh.notna()
+    ok &= a.between(PM_MIN_VALID, PM_MAX_VALID) & b.between(PM_MIN_VALID, PM_MAX_VALID) & rh.between(0.0, 100.0)
+    diff = (a - b).abs()
+    mean = (a + b) / 2.0
+    pct = (diff / mean.where(mean > 0)).fillna(0.0)
+    return ok & ((diff <= AB_ABS_LIMIT) | (pct <= AB_PCT_LIMIT))
+
+
 def epa_correct(pa, rh):
     """EPA U.S.-wide PurpleAir correction (Barkjohn et al., 2021), the one we use.
 

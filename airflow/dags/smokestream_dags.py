@@ -117,17 +117,32 @@ def backfill_fire_seasons():
             backfill.override(task_id=f"{what}_{season}")(season, what)
 
 
-@dag(schedule=timedelta(minutes=5), **COMMON)
+@dag(schedule="0 10 * * *", **COMMON)  # daily, after the nightly sensor scores
 def load_snowflake():
-    @task
-    def copy_new_outputs():
-        """PUT new Parquet files from data/out/{stream,batch} to a Snowflake stage and
-        COPY INTO FACT_HEX_WINDOW (columns match the Spark output; config_id comes from
-        the partition folder name). Track loaded files so nothing loads twice.
-        Needs SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER and a password or key-pair (Airflow connection)."""
-        raise NotImplementedError
+    """Warehouse load with warehouse/load_snowflake.py: tables, then data, then a check
+    that Snowflake's RQ1 numbers match the Python sweep (the task fails if they do not).
+    Each load replaces the slice it loaded before, so reruns never duplicate rows.
+    Credentials come from the project's .env (key-pair sign-in)."""
 
-    copy_new_outputs()
+    def step(command):
+        import sys
+        sys.path.insert(0, str(PROJECT))
+        from warehouse.load_snowflake import run
+        run(command)
+
+    @task
+    def create_tables():
+        step("setup")
+
+    @task
+    def load_tables():
+        step("load")
+
+    @task
+    def verify_against_python():
+        step("verify")
+
+    create_tables() >> load_tables() >> verify_against_python()
 
 
 @dag(schedule="0 9 * * *", **COMMON)  # 09:00 UTC = 1-2 a.m. in California

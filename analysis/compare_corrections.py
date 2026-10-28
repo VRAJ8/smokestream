@@ -34,10 +34,7 @@ def km(lat1, lon1, lat2, lon2):
 
 
 def valid_readings(history):
-    a, b, rh = history["pm2.5_cf_1_a"], history["pm2.5_cf_1_b"], history["humidity_a"]
-    ok = a.notna() & b.notna() & rh.notna() & a.between(0, 1000) & b.between(0, 1000) & rh.between(0, 100)
-    diff = (a - b).abs()
-    ok &= (diff <= aq.AB_ABS_LIMIT) | (diff / ((a + b) / 2).where((a + b) > 0, 1) <= aq.AB_PCT_LIMIT)
+    ok = aq.valid_ab_mask(history["pm2.5_cf_1_a"], history["pm2.5_cf_1_b"], history["humidity_a"])
     out = history[ok].copy()
     out["pa"] = (out["pm2.5_cf_1_a"] + out["pm2.5_cf_1_b"]) / 2
     return out

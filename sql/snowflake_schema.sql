@@ -1,6 +1,6 @@
 -- SmokeStream warehouse: star schema for history, both pipelines' outputs, and context data.
--- Run once in a Snowflake worksheet. Parquet from data/out/ is loaded by the Airflow
--- load DAG (COPY INTO from a stage); this file only defines the tables.
+-- warehouse/load_snowflake.py runs this file (setup) and loads the tables (load); it can
+-- also be run by hand in a worksheet. Every statement is safe to run again.
 
 CREATE DATABASE IF NOT EXISTS SMOKESTREAM;
 CREATE SCHEMA IF NOT EXISTS SMOKESTREAM.CORE;
@@ -39,21 +39,26 @@ CREATE TABLE IF NOT EXISTS DIM_TIME (
     FIRE_SEASON  VARCHAR(8)                     -- '2020', '2021', '2024' or NULL
 );
 
--- One row per pipeline setting, so every result can be traced to its knobs (RQ2).
+-- One row per pipeline setting within a run, so every result can be traced to its
+-- knobs (RQ2). A run is one output folder: a season sweep under one delay profile, or
+-- one live streaming run; the same CONFIG_ID appears in several runs.
 CREATE TABLE IF NOT EXISTS DIM_PIPELINE_CONFIG (
-    CONFIG_ID              VARCHAR(64) PRIMARY KEY,   -- e.g. w10_wm5_r7, or w10_r7 for batch
+    RUN_ID                 VARCHAR(64),               -- e.g. stream_2020-delay-profile-partial, demo_live
+    CONFIG_ID              VARCHAR(64),               -- e.g. w10_wm5_q120_c60_r7, or w10_q120_r7 for batch
     MODE                   VARCHAR(16),               -- 'stream', 'simulated', 'batch'
     WINDOW_MINUTES         NUMBER,
     WATERMARK_MINUTES      NUMBER,                    -- NULL for batch
     QC_HISTORY_MINUTES     NUMBER,
     CONTEXT_REFRESH_MINUTES NUMBER,
     H3_RESOLUTION          NUMBER(2),
-    FIRE_SEASON            VARCHAR(8)
+    FIRE_SEASON            VARCHAR(8),
+    PRIMARY KEY (RUN_ID, CONFIG_ID)
 );
 
 -- ---------- Facts ----------
 
--- Grain: one corrected sensor reading (2-minute PurpleAir report).
+-- Grain: one corrected sensor reading (10-minute averages in the history we load;
+-- the live feed reports every 2 minutes).
 CREATE TABLE IF NOT EXISTS FACT_READING (
     SENSOR_KEY     NUMBER REFERENCES DIM_SENSOR (SENSOR_KEY),
     TIME_KEY       TIMESTAMP_NTZ REFERENCES DIM_TIME (TIME_KEY),
@@ -66,11 +71,12 @@ CREATE TABLE IF NOT EXISTS FACT_READING (
     PASSED_QC      BOOLEAN
 );
 
--- Grain: one hexagon window produced by one pipeline config. Stream, simulated and
--- batch outputs sit side by side, so RQ1/RQ2 comparisons are a self-join on
--- (H3_CELL, WINDOW_START). Columns match common/enrich.py OUTPUT_COLUMNS.
+-- Grain: one hexagon window produced by one pipeline config in one run. Stream,
+-- simulated and batch outputs sit side by side, so RQ1/RQ2 comparisons are a self-join
+-- on (H3_CELL, WINDOW_START). Columns match common/enrich.py OUTPUT_COLUMNS.
 CREATE TABLE IF NOT EXISTS FACT_HEX_WINDOW (
-    CONFIG_ID          VARCHAR(64) REFERENCES DIM_PIPELINE_CONFIG (CONFIG_ID),
+    RUN_ID             VARCHAR(64),
+    CONFIG_ID          VARCHAR(64),        -- with RUN_ID, references DIM_PIPELINE_CONFIG
     H3_CELL            VARCHAR(16) REFERENCES DIM_H3_CELL (H3_CELL),
     WINDOW_START       TIMESTAMP_NTZ,
     WINDOW_END         TIMESTAMP_NTZ,
@@ -95,17 +101,21 @@ CREATE TABLE IF NOT EXISTS FACT_HEX_WINDOW (
     LAST_ARRIVAL_TIME  FLOAT,
     EMITTED_SIM_TIME   FLOAT,              -- simulated runs: when the window would have been emitted
     DECISION_DELAY_S   FLOAT,              -- simulated runs: emitted_sim_time minus window end
-    EMITTED_AT         TIMESTAMP_NTZ       -- real streaming runs: wall-clock emit time (RQ4)
+    EMITTED_AT         TIMESTAMP_NTZ,      -- real streaming runs: wall-clock emit time (RQ4)
+    FOREIGN KEY (RUN_ID, CONFIG_ID) REFERENCES DIM_PIPELINE_CONFIG (RUN_ID, CONFIG_ID)
 );
 
+-- Derived from FACT_HEX_WINDOW by the loader: one row per window that raised a smoke alert.
 CREATE TABLE IF NOT EXISTS FACT_ALERT (
-    CONFIG_ID       VARCHAR(64) REFERENCES DIM_PIPELINE_CONFIG (CONFIG_ID),
+    RUN_ID          VARCHAR(64),
+    CONFIG_ID       VARCHAR(64),
     H3_CELL         VARCHAR(16) REFERENCES DIM_H3_CELL (H3_CELL),
     WINDOW_START    TIMESTAMP_NTZ,
     AQI             NUMBER,
     AQI_CATEGORY    VARCHAR(32),
     SMOKE_LABEL     VARCHAR(16),
-    ALERT_SIM_TIME  TIMESTAMP_NTZ          -- when the alert would have fired
+    ALERT_SIM_TIME  TIMESTAMP_NTZ,         -- when the alert would have fired (simulated runs)
+    FOREIGN KEY (RUN_ID, CONFIG_ID) REFERENCES DIM_PIPELINE_CONFIG (RUN_ID, CONFIG_ID)
 );
 
 -- Regulatory monitors (EPA AQS / AirNow), the ground truth.
@@ -146,12 +156,3 @@ CREATE TABLE IF NOT EXISTS FACT_WIND_OBS (
     WIND_DIR_DEG  FLOAT,                   -- direction the wind blows FROM
     WIND_SPEED_MS FLOAT
 );
-
--- Example: RQ1 accuracy of one streaming setting against the hindsight baseline.
--- SELECT 'w10_wm5_r7'                                    AS STREAM_CONFIG,
---        SQRT(AVG(POWER(s.PM25 - b.PM25, 2)))            AS RMSE,
---        COUNT(s.PM25) / COUNT(*)                         AS COVERAGE
--- FROM FACT_HEX_WINDOW b
--- LEFT JOIN FACT_HEX_WINDOW s
---   ON s.H3_CELL = b.H3_CELL AND s.WINDOW_START = b.WINDOW_START AND s.CONFIG_ID = 'w10_wm5_r7'
--- WHERE b.CONFIG_ID = 'w10_r7';

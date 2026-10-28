@@ -9,3 +9,5 @@ kafka-python
 pymongo
 pytest
 pyshp            # NOAA HMS smoke shapefiles
+snowflake-connector-python  # warehouse/load_snowflake.py
+duckdb           # tests: runs the warehouse SQL locally
