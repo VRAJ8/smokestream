@@ -1,16 +1,20 @@
 """SmokeStream Airflow DAGs: everything that is not real-time.
 
-Owner: Brandon. Each task is a stub with its contract (what it fetches, where it
-writes, which columns) so the pieces fit the Spark jobs and the Snowflake schema
-(sql/snowflake_schema.sql). Fill in the bodies; keep the output contracts.
+Each task runs one project script with the project's own Python (.venv), so
+Airflow lives in its own environment (.venv-airflow) and never shares packages
+with Spark. Start it with airflow/run_airflow.sh.
 
-Context lookups go to data/context/<name>/ as Parquet, in exactly the columns
-common/context.py defines (all times UNIX seconds, UTC); the pipelines read them
-with load_context(). published_at is when the data became available; leave it
-null if the source does not say and enrich.py assumes a typical delay. Every DAG
-starts paused, so nothing runs until you switch it on in the Airflow UI.
+  ingest_*               live context into data/context/ (history/live_context.py), where the
+                         streaming job reads it; monitor readings go to data/monitors/ for
+                         evaluation only
+  backfill_fire_seasons  historical monitors and context for 2020, 2021 and 2024 (run once)
+  load_snowflake         warehouse tables, data, and a check against the Python results
 
-Works with Airflow 2.x (airflow.decorators) and 3.x (airflow.sdk).
+How often the ingest DAGs run is the live counterpart of the context-refresh knob
+in the experiments. Every DAG starts paused, so nothing runs until it is switched
+on in the Airflow UI.
+
+Works with Airflow 2.9+ (airflow.decorators) and 3.x (airflow.sdk).
 """
 
 from datetime import datetime, timedelta
@@ -22,77 +26,54 @@ except ImportError:  # Airflow 2
     from airflow.decorators import dag, task
 
 PROJECT = Path(__file__).resolve().parents[2]
-CONTEXT = PROJECT / "data" / "context"
-# Northern California: west, south, east, north (same box as the recorder)
-BBOX = (-124.0, 36.5, -119.5, 41.0)
+PY = PROJECT / ".venv" / "bin" / "python"
 
 DEFAULTS = {"owner": "smokestream", "retries": 2, "retry_delay": timedelta(minutes=5)}
 COMMON = {"start_date": datetime(2026, 10, 1), "catchup": False, "default_args": DEFAULTS,
           "is_paused_upon_creation": True, "tags": ["smokestream"]}
 
 
+def script(*args):
+    """Shell command that runs a project script with the project's Python."""
+    return f"cd '{PROJECT}' && '{PY}' " + " ".join(map(str, args))
+
+
 @dag(schedule=timedelta(minutes=30), **COMMON)
 def ingest_fire_detections():
-    @task
+    """NASA FIRMS near-real-time VIIRS fire detections, last 24 hours."""
+    @task.bash
     def fetch_firms():
-        """NASA FIRMS active fires (VIIRS SNPP, NOAA-20, MODIS) inside BBOX, last 24 h.
-
-        Needs FIRMS_MAP_KEY. Area API: /api/area/csv/{MAP_KEY}/{SOURCE}/{w,s,e,n}/{days}
-        (check the current docs at firms.modaps.eosdis.nasa.gov/api).
-        Output: data/context/fires/fires_<utc timestamp>.parquet with columns
-          detected_at, latitude, longitude, frp_mw, published_at
-        (detected_at from the acquisition date and time; published_at = time of download)
-        """
-        raise NotImplementedError
+        return script("history/live_context.py", "fires")
 
     fetch_firms()
 
 
 @dag(schedule=timedelta(hours=3), **COMMON)
 def ingest_smoke_plumes():
-    @task
+    """NOAA HMS smoke polygons for yesterday and today, as H3 cells."""
+    @task.bash
     def fetch_hms():
-        """NOAA Hazard Mapping System smoke polygons for today (UTC).
-
-        HMS publishes daily shapefiles/KML of analyst-drawn plumes with a density
-        class (Light, Medium, Heavy); see NOAA OSPO's HMS page for the file location.
-        Convert each polygon to H3 cells with common.context.plume_to_cells(ring, 7).
-        Output: data/context/plume_cells/plumes_<date>.parquet, one row per cell, columns
-          h3, valid_start, valid_end, density, published_at
-        """
-        raise NotImplementedError
+        return script("history/live_context.py", "plumes")
 
     fetch_hms()
 
 
 @dag(schedule=timedelta(hours=1), **COMMON)
 def ingest_weather():
-    @task
+    """Airport (ASOS) wind speed and direction around the study region."""
+    @task.bash
     def fetch_wind():
-        """Latest wind speed and direction from NWS stations in BBOX.
-
-        api.weather.gov needs no key but requires a User-Agent header with contact info.
-        Output: data/context/wind/wind_<utc timestamp>.parquet with columns
-          station_id, latitude, longitude, observed_at, wind_dir_deg, wind_speed_ms, published_at
-        (wind_dir_deg is where the wind blows FROM, as NWS reports it)
-        """
-        raise NotImplementedError
+        return script("history/live_context.py", "wind")
 
     fetch_wind()
 
 
-@dag(schedule=timedelta(hours=1), **COMMON)
+@dag(schedule="25 * * * *", **COMMON)  # AirNow posts each hour a little after it ends
 def ingest_monitors():
-    @task
+    """AirNow hourly PM2.5 at regulatory monitors: ground truth, never read by the pipelines."""
+    @task.bash
     def fetch_airnow():
-        """Hourly PM2.5 from regulatory monitors in BBOX (EPA AirNow API; needs AIRNOW_API_KEY).
-
-        Output: data/monitors/monitors_<utc hour>.parquet with columns
-          site_id, latitude, longitude, hour_start (UNIX seconds, start of the hour, UTC), pm25
-        Ground truth only: never put it under data/context/, which the pipelines read.
-        common/evaluate.py reads this format. Loads into FACT_MONITOR_HOURLY.
-        """
-        raise NotImplementedError
+        return script("history/live_context.py", "monitors")
 
     fetch_airnow()
 
@@ -104,58 +85,31 @@ def backfill_fire_seasons():
     Each task runs one step of history/download_context.py, which downloads the
     public files (cached under data/raw/) and writes data/history/<season>/.
     """
-
-    @task
-    def backfill(season: str, what: str):
-        import sys
-        sys.path.insert(0, str(PROJECT))
-        from history.download_context import COMMANDS
-        COMMANDS[what](season, "bayarea")
-
     for season in ("2020", "2021", "2024"):
         for what in ("monitors", "fires", "plumes", "wind"):
-            backfill.override(task_id=f"{what}_{season}")(season, what)
+            task.bash(task_id=f"{what}_{season}")(lambda w=what, s=season: script(
+                "history/download_context.py", w, "--season", s))()
 
 
-@dag(schedule="0 10 * * *", **COMMON)  # daily, after the nightly sensor scores
+@dag(schedule="0 10 * * *", **COMMON)
 def load_snowflake():
     """Warehouse load with warehouse/load_snowflake.py: tables, then data, then a check
     that Snowflake's RQ1 numbers match the Python sweep (the task fails if they do not).
     Each load replaces the slice it loaded before, so reruns never duplicate rows.
     Credentials come from the project's .env (key-pair sign-in)."""
-
-    def step(command):
-        import sys
-        sys.path.insert(0, str(PROJECT))
-        from warehouse.load_snowflake import run
-        run(command)
-
-    @task
+    @task.bash
     def create_tables():
-        step("setup")
+        return script("warehouse/load_snowflake.py", "setup")
 
-    @task
+    @task.bash
     def load_tables():
-        step("load")
+        return script("warehouse/load_snowflake.py", "load")
 
-    @task
+    @task.bash
     def verify_against_python():
-        step("verify")
+        return script("warehouse/load_snowflake.py", "verify")
 
     create_tables() >> load_tables() >> verify_against_python()
-
-
-@dag(schedule="0 9 * * *", **COMMON)  # 09:00 UTC = 1-2 a.m. in California
-def nightly_sensor_scores():
-    @task
-    def score_sensors():
-        """Reliability score per sensor from the last 7 days: share of readings passing
-        the A/B check, uptime, and agreement with neighbouring sensors in the same hexagon.
-        Writes data/context/sensor_scores.parquet (sensor_index, reliability_score) for the
-        stream, and updates DIM_SENSOR as a Type 2 change when a score or location changes."""
-        raise NotImplementedError
-
-    score_sensors()
 
 
 ingest_fire_detections()
@@ -164,4 +118,3 @@ ingest_weather()
 ingest_monitors()
 backfill_fire_seasons()
 load_snowflake()
-nightly_sensor_scores()

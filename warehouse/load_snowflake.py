@@ -330,6 +330,11 @@ def cmd_load(db):
             load_sensors(db, base / "sensors.csv")
         if (base / "history_avg10.csv").exists():
             load_readings(db, base / "history_avg10.csv")
+    for window in sorted((ROOT / "data" / "history").glob("[0-9]" * 4 + "-*")):
+        if (window / "history_avg10.csv").exists():
+            print(f"Event window {window.name}")
+            load_sensors(db, window / "sensors.csv")
+            load_readings(db, window / "history_avg10.csv")
     for path in runs():
         print(f"Run {run_id(path)}")
         load_run(db, path)

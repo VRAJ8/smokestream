@@ -8,14 +8,15 @@ Team: Vraj Patel, Brandon Moriguchi.
 
 ```
 recorder/    live PurpleAir recorder (one week of data for the arrival-delay profile)
-history/     PurpleAir downloader (budgeted, resumable) and the public-data downloader
+history/     PurpleAir downloader (budgeted, resumable), the public-data downloader
              (EPA AQS monitors, NASA FIRMS fires, NOAA HMS plumes, ASOS wind; no keys needed)
+             and the live versions of those feeds that Airflow runs
 replay/      delay profile builder and the replay tool (history -> Kafka or files)
 common/      shared logic: EPA correction, AQI, Spark transforms, steps 4-5 (enrich),
              context loading, watermark simulator
 spark/       streaming job, hindsight batch job, fast simulated streaming job
 analysis/    stream-vs-baseline comparison, knob sweep, monitor evaluation, labeling tool, figures
-airflow/     DAGs for the slower sources, Snowflake loads, sensor scores (stubs)
+airflow/     DAGs for live context, the season backfill and Snowflake loads; run_airflow.sh
 sql/         Snowflake star schema
 mongo/       MongoDB index setup for the live store
 tools/       synthetic data generator for testing
@@ -209,7 +210,11 @@ History costs points per row and per field: PurpleAir's own example is 531,000 p
 .venv/bin/python history/download_purpleair.py estimate --season 2020 --average 10
 ```
 
-3. Measure the real price once. Make one request, check its cost on develop.purpleair.com, and divide by the rows it printed:
+3. Measure the real price once. Check your points, make one request, and check again (the `points` call is free). History with these four fields costs 4 points per row plus 2 per request:
+
+```bash
+.venv/bin/python history/download_purpleair.py points
+```
 
 ```bash
 .venv/bin/python history/download_purpleair.py download --season 2020 --max-points 50000 --max-requests 1
@@ -228,6 +233,12 @@ History costs points per row and per field: PurpleAir's own example is 531,000 p
 ```
 
 The output is `data/history/2020/history_avg10.csv` and `data/history/2020/sensors.csv`. Seasons are 2020 (Aug 1 to Sep 30), 2021 and 2024 (Jul 1 to Sep 15, both including the Fourth of July).
+
+**Event windows** are short slices of a season with their own sensors and history: `2021-july4` and `2024-july4` (Jul 3 to 6, fireworks, the local-pollution test for RQ3) and `2021-smoke` (Aug 26 to 29, Caldor fire smoke). They use their season's monitors and context, and run like a season:
+
+```bash
+.venv/bin/python analysis/run_season.py --season 2021-july4 --start 2021-07-03 --end 2021-07-07
+```
 
 **Monitor-anchored sampling (recommended for the monitor evaluation):** a random sample leaves most monitors with no sensor nearby (in 2020, 27 random sensors covered only 5 of 20 monitors within 5 km). Pick the closest sensors around each monitor instead, keeping any already downloaded:
 
@@ -254,11 +265,40 @@ The candidate list is saved, so later re-sampling with `--reuse-candidates` cost
 - **Reading the frontier across window sizes.** Each point's error is measured against the hindsight baseline at the same window size, so it shows what real-time processing costs at that resolution. A 60-minute window can score well on that measure while still being too coarse for warnings. Comparing window sizes on an absolute scale needs the monitor-based evaluation.
 - **Known weakness of the labels (expected RQ3 finding).** Where sensors are sparse, the "extent" signal is missing. A local spike during fire season can then be blamed on an upwind fire. The synthetic test shows this with 12 sensors; with 30 it labels the same barbecue correctly.
 
+## Airflow
+
+Airflow runs from its own environment so it never shares packages with Spark; each task calls a project script with `.venv/bin/python`. Install once:
+
+```bash
+python3.12 -m venv .venv-airflow && .venv-airflow/bin/pip install "apache-airflow==3.3.2" --constraint https://raw.githubusercontent.com/apache/airflow/constraints-3.3.2/constraints-3.12.txt
+```
+
+Start it (UI at http://localhost:8080, no login, local use only):
+
+```bash
+airflow/run_airflow.sh
+```
+
+Or run one DAG once from the terminal:
+
+```bash
+airflow/run_airflow.sh dags test ingest_fire_detections
+```
+
+| DAG | Schedule | What it does |
+|---|---|---|
+| `ingest_fire_detections` | every 30 min | FIRMS near-real-time fires (NOAA-20 and NOAA-21) into `data/context/fires/` |
+| `ingest_smoke_plumes` | every 3 h | HMS smoke polygons for yesterday and today, as H3 cells |
+| `ingest_weather` | hourly | airport wind into `data/context/wind/` |
+| `ingest_monitors` | hourly at :25 | AirNow PM2.5 into `data/monitors/` (ground truth only) |
+| `backfill_fire_seasons` | manual | historical monitors and context for 2020, 2021 and 2024 |
+| `load_snowflake` | daily | warehouse tables, data, and the check against the Python results |
+
+The live feeds are `history/live_context.py`. Each record keeps the time it was first fetched as its `published_at`, so the streaming job applies the same freshness rules to live data as to the replays. All DAGs start paused.
+
 ## Still to build
 
-- Run everything on real data (needs the recorder's delay profile, PurpleAir history and Brandon's context and monitor tasks)
-- Hand-label the 300 events (you and Brandon)
-- Airflow task bodies (see the contracts in `airflow/dags/smokestream_dags.py`)
+- Hand-label the RQ3 events (two labelers)
 
 ## Live recorder
 

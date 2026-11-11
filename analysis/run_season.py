@@ -16,6 +16,9 @@ exists; otherwise one of the built-in sensitivity profiles (--profile fast,
 typical or slow), which the outputs are tagged with so they are never mistaken
 for a measured profile.
 
+An event window such as 2021-july4 (see history/download_purpleair.py) runs the
+same way from its own PurpleAir history, with its season's monitors and context.
+
 Usage:
   python analysis/run_season.py --season 2020 --start 2020-08-16 --end 2020-09-16
   python analysis/run_season.py --season 2020 --start 2020-08-16 --end 2020-09-16 --max-points 900000
@@ -50,7 +53,8 @@ def run(*args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--season", required=True, choices=["2020", "2021", "2024"])
+    parser.add_argument("--season", required=True,
+                        choices=["2020", "2021", "2024", "2021-july4", "2021-smoke", "2024-july4"])
     parser.add_argument("--start", required=True, help="YYYY-MM-DD, e.g. the start of the peak smoke weeks")
     parser.add_argument("--end", required=True, help="YYYY-MM-DD, exclusive")
     parser.add_argument("--sample", type=int, default=60, help="PurpleAir sensors")
@@ -67,12 +71,13 @@ def main():
 
     s = args.season
     hist = ROOT / "data" / "history" / s
+    season = ROOT / "data" / "history" / s[:4]  # monitors and context
     out = ROOT / "data" / "out" / f"season_{s}"
     out.mkdir(parents=True, exist_ok=True)
 
     # 1. context and monitors (free)
-    if not (hist / "monitors" / "monitors.csv").exists():
-        run("history/download_context.py", "all", "--season", s)
+    if not (season / "monitors" / "monitors.csv").exists():
+        run("history/download_context.py", "all", "--season", s[:4])
 
     # 2-4. PurpleAir
     merged = hist / f"history_avg{args.average}.csv"
@@ -109,7 +114,7 @@ def main():
     label = f"{s}-{profile_tag}"
     results = out / "sweep.csv"
     run("analysis/run_sweep.py", "--label", label, "--replay", replay, "--history", merged,
-        "--sensors", hist / "sensors.csv", "--context", hist / "context", "--monitors", hist / "monitors",
+        "--sensors", hist / "sensors.csv", "--context", season / "context", "--monitors", season / "monitors",
         "--grid", args.grid, "--out", out, "--results", results)
 
     # 7. figures

@@ -11,6 +11,7 @@ Steps (run in order; each reads what the previous one saved):
   download  fetch history in chunks, one sensor at a time, until done or out of budget
   merge     combine everything into one history.csv sorted by time, plus sensors.csv
   status    what has been downloaded and spent so far
+  points    points left on the key's organization (free)
 
 Examples:
   python history/download_purpleair.py sensors  --season 2020 --sample 60
@@ -40,11 +41,16 @@ from common import purpleair as pa  # noqa: E402
 
 HISTORY_DIR = ROOT / "data" / "history"
 
-# Season windows in UTC; end is exclusive.
+# Season windows in UTC; end is exclusive. Event windows (<season>-<event>) are short
+# slices of a season with their own sensors and history; they use the season's
+# monitors and context.
 SEASONS = {
     "2020": ("2020-08-01", "2020-10-01"),  # SCU, LNU and CZU Lightning Complex fires
     "2021": ("2021-07-01", "2021-09-16"),  # Dixie and Caldor fires, includes July 4
     "2024": ("2024-07-01", "2024-09-16"),  # Park Fire, includes July 4
+    "2021-july4": ("2021-07-03", "2021-07-07"),  # fireworks: local pollution for RQ3
+    "2021-smoke": ("2021-08-26", "2021-08-30"),  # Caldor fire smoke over the Bay Area
+    "2024-july4": ("2024-07-03", "2024-07-07"),
 }
 
 # west, south, east, north
@@ -325,9 +331,14 @@ def cmd_status(args):
         print(f"Estimated spend: {ledger['points']:,.0f} points, {ledger['rows']:,} rows.")
 
 
+def cmd_points(args):
+    print(f"{pa.get('/organization', {})['remaining_points']:,} points left")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("points").set_defaults(func=cmd_points)
 
     def add(name, func):
         p = sub.add_parser(name)

@@ -57,10 +57,10 @@ PLUME_PUBLISH_DELAY_S = 2 * 3600
 H3_RES = 7
 
 
-def fetch(url, dest, pause=0.0):
-    """Download url to dest once (cached)."""
+def fetch(url, dest, pause=0.0, refresh=False):
+    """Download url to dest once (cached), or again with refresh (files that grow during the day)."""
     dest = Path(dest)
-    if dest.exists() and dest.stat().st_size > 0:
+    if dest.exists() and dest.stat().st_size > 0 and not refresh:
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
@@ -207,27 +207,25 @@ def hms_time(value):
     return int(datetime.strptime(value, "%Y%j %H%M").replace(tzinfo=timezone.utc).timestamp())
 
 
-def cmd_plumes(season, region):
+def plume_cells(days, bbox, refresh=False):
+    """HMS smoke polygons for the given UTC days as H3 cells, one row per cell and day:
+    h3, valid_start, valid_end, density, published_at. Also returns how many days had no file."""
     import shapefile
-    start, end = season_bounds(season)
-    bbox = REGIONS[region]
     rank = {"Light": 1, "Medium": 2, "Heavy": 3}
     cells = {}  # (cell, day) -> [valid_start, valid_end, density_rank, published_at]
     import h3
     west, south, east, north = bbox
     region = h3.polygon_to_cells(h3.LatLngPoly([(south, west), (south, east), (north, east), (north, west)]), H3_RES)
     region_centers = {c: h3.cell_to_latlng(c) for c in region}
-    day = datetime.fromtimestamp(start, timezone.utc) - timedelta(days=1)
     missing = 0
-    while day.timestamp() < end:
+    for day in days:
         tag = day.strftime("%Y%m%d")
         url = (f"https://satepsanone.nesdis.noaa.gov/pub/FIRE/web/HMS/Smoke_Polygons/Shapefile/"
                f"{day:%Y}/{day:%m}/hms_smoke{tag}.zip")
         try:
-            zpath = fetch(url, RAW / "hms" / f"hms_smoke{tag}.zip", pause=0.2)
+            zpath = fetch(url, RAW / "hms" / f"hms_smoke{tag}.zip", pause=0.2, refresh=refresh)
         except Exception:
             missing += 1
-            day += timedelta(days=1)
             continue
         with zipfile.ZipFile(zpath) as z:
             base = next(n for n in z.namelist() if n.endswith(".shp"))[:-4]
@@ -254,10 +252,17 @@ def cmd_plumes(season, region):
                             cells[key] = [vs, ve, density, pub]
                         else:
                             cells[key] = [min(cur[0], vs), max(cur[1], ve), max(cur[2], density), min(cur[3], pub)]
-        day += timedelta(days=1)
     names = {1: "Light", 2: "Medium", 3: "Heavy"}
     out = pd.DataFrame([(c, float(v[0]), float(v[1]), names[v[2]], float(v[3])) for (c, _), v in cells.items()],
                        columns=["h3", "valid_start", "valid_end", "density", "published_at"])
+    return out, missing
+
+
+def cmd_plumes(season, region):
+    start, end = season_bounds(season)
+    first = datetime.fromtimestamp(start, timezone.utc) - timedelta(days=1)  # plumes linger into the first day
+    out, missing = plume_cells([first + timedelta(days=i) for i in range((end - start) // 86400 + 1)],
+                               REGIONS[region])
     dest = out_dir(season, "context", "plume_cells") / "plume_cells.parquet"
     out.to_parquet(dest, index=False)
     print(f"plumes: {len(out):,} cell-days at resolution {H3_RES}"
@@ -266,20 +271,20 @@ def cmd_plumes(season, region):
 
 # ---------- wind (Iowa Environmental Mesonet ASOS) ----------
 
-def cmd_wind(season, region):
-    start, end = season_bounds(season)
+def asos_wind(s, e, region, dest, refresh=False):
+    """Airport wind observations from UTC day s up to day e (exclusive), cached at dest,
+    in the context wind columns."""
     west, south, east, north = expanded(region)
     stations_path = fetch("https://mesonet.agron.iastate.edu/geojson/network/CA_ASOS.geojson",
                           RAW / "iem" / "CA_ASOS.geojson")
     features = json.loads(stations_path.read_text())["features"]
     stations = {f["properties"]["sid"]: f["geometry"]["coordinates"] for f in features
                 if west <= f["geometry"]["coordinates"][0] <= east and south <= f["geometry"]["coordinates"][1] <= north}
-    s, e = datetime.fromtimestamp(start, timezone.utc), datetime.fromtimestamp(end, timezone.utc)
     query = "&".join(f"station={sid}" for sid in sorted(stations))
     url = (f"https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?{query}&data=drct&data=sknt"
            f"&year1={s:%Y}&month1={s.month}&day1={s.day}&year2={e:%Y}&month2={e.month}&day2={e.day}"
            f"&tz=Etc/UTC&format=onlycomma&latlon=yes&missing=empty&report_type=3")
-    path = fetch(url, RAW / "iem" / f"asos_{season}_{region}.csv")
+    path = fetch(url, dest, refresh=refresh)
     df = pd.read_csv(path, na_values=["", "M"])
     df = df.dropna(subset=["drct", "sknt"])
     observed = pd.to_datetime(df["valid"], utc=True).astype("int64") // 10**9
@@ -287,6 +292,13 @@ def cmd_wind(season, region):
                         "longitude": df["lon"].astype(float), "observed_at": observed.astype(float),
                         "wind_dir_deg": df["drct"].astype(float), "wind_speed_ms": (df["sknt"] * 0.514444).round(2),
                         "published_at": pd.Series(dtype=float)})
+    return out
+
+
+def cmd_wind(season, region):
+    start, end = season_bounds(season)
+    out = asos_wind(datetime.fromtimestamp(start, timezone.utc), datetime.fromtimestamp(end, timezone.utc), region,
+                    RAW / "iem" / f"asos_{season}_{region}.csv")
     dest = out_dir(season, "context", "wind") / "wind.parquet"
     out.to_parquet(dest, index=False)
     print(f"wind: {out['station_id'].nunique()} stations, {len(out):,} observations -> {dest}")
@@ -298,7 +310,7 @@ COMMANDS = {"monitors": cmd_monitors, "fires": cmd_fires, "plumes": cmd_plumes, 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("what", choices=[*COMMANDS, "all"])
-    parser.add_argument("--season", required=True, choices=sorted(SEASONS))
+    parser.add_argument("--season", required=True, choices=sorted(s for s in SEASONS if s.isdigit()))
     parser.add_argument("--region", choices=sorted(REGIONS), default="bayarea")
     args = parser.parse_args()
     for name in (COMMANDS if args.what == "all" else [args.what]):
