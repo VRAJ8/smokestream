@@ -20,6 +20,8 @@ airflow/     DAGs for live context, the season backfill and Snowflake loads; run
 sql/         Snowflake star schema
 mongo/       MongoDB index setup for the live store
 tools/       synthetic data generator for testing
+paper/       report (IEEE LaTeX), figures and slide generator
+docs/        sprint log and backlog
 tests/       pytest suite
 data/        local data, not committed
 ```
@@ -295,6 +297,31 @@ airflow/run_airflow.sh dags test ingest_fire_detections
 | `load_snowflake` | daily | warehouse tables, data, and the check against the Python results |
 
 The live feeds are `history/live_context.py`. Each record keeps the time it was first fetched as its `published_at`, so the streaming job applies the same freshness rules to live data as to the replays. All DAGs start paused.
+
+## Course techniques on the real data
+
+Each one runs on the outputs above and is checked against an exact answer.
+
+| What | Script | Result (2020 unless noted) |
+|---|---|---|
+| Bloom filter, Flajolet-Martin, DGIM, reservoir sampling on the arrival-ordered stream | `analysis/stream_summaries.py --replay data/out/season_2020/replay_measured` (or `--kafka <topic>` live) | all 2,843 duplicate deliveries caught, 7 false drops in 145k; distinct sensors within 3.4%; DGIM within its 50% bound in 52 bytes |
+| LSH (SimHash) over sensor-day curves | `analysis/lsh_sensors.py` | 98% of correlated pairs found from a quarter of all pairs; smoke days twice as coherent as clean days |
+| k-anonymity (H3 generalization) and differential privacy (Laplace) | `analysis/privacy_tradeoff.py --clip 100` | k = 3 and epsilon = 2 per hour keep 87% of AQI-100 alerts |
+| Data poisoning: lone and colluding fake sensors | `analysis/poisoning_test.py` | the neighbour check stops lone fakes where two honest sensors are near, not colluding ones |
+
+## Report and slides
+
+```bash
+.venv/bin/python paper/make_figures.py
+```
+
+```bash
+cd paper/report && tectonic smokestream_report.tex
+```
+
+```bash
+cd paper/slides && npm install && node build_slides.js ../../SmokeStream_Slides.pptx
+```
 
 ## Still to build
 
