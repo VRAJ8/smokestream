@@ -92,12 +92,75 @@ def privacy():
     save(fig, "privacy")
 
 
+def latency_split():
+    import json
+    s = json.loads((OUT_DATA / "demo_live" / "latency_split.json").read_text())
+    fig, ax = plt.subplots(figsize=(3.4, 1.35))
+    rows = [("Median", s["designed_wait_wall_s_p50"], s["overhead_s_p50"]),
+            ("95th pct.", s["latency_s_p95"] - s["overhead_s_p95"], s["overhead_s_p95"])]
+    for i, (name, wait, over) in enumerate(rows):
+        ax.barh(i, wait, color="#E69F00", label="Designed wait (watermark)" if i == 0 else None)
+        ax.barh(i, over, left=wait, color="#D55E00", label="System overhead" if i == 0 else None)
+        ax.text(wait / 2, i, f"{wait:.1f}", ha="center", va="center", color="white", fontsize=7)
+        ax.text(wait + over / 2, i, f"{over:.1f}", ha="center", va="center", color="white", fontsize=7)
+    ax.set_yticks([0, 1], [r[0] for r in rows])
+    ax.invert_yaxis()
+    ax.set_xlabel("End-to-end latency, Kafka to MongoDB Atlas (s)")
+    ax.legend(frameon=False, ncol=2, loc="lower center", bbox_to_anchor=(0.5, 1.0))
+    save(fig, "latency_split")
+
+
+def coherence():
+    d = pd.read_csv(OUT_DATA / "lsh_sensors.days.csv")
+    order = [("clean", "Clean"), ("moderate", "Moderate"), ("smoke", "Smoke"), ("july4", "July 4")]
+    fig, ax = plt.subplots(figsize=(3.4, 1.9))
+    for i, (cls, name) in enumerate(order):
+        v = d[d["class"] == cls]["coherence"]
+        jitter = [(j % 5 - 2) * 0.05 for j in range(len(v))]
+        ax.scatter([i + j for j in jitter], v, s=12, color="#0072B2" if cls != "smoke" else "#D55E00", alpha=0.75)
+        ax.plot([i - 0.25, i + 0.25], [v.mean()] * 2, color="#333333", lw=1.2)
+        ax.text(i + 0.3, v.mean(), f"{v.mean():.2f}", va="center", fontsize=6.5, color="#333333")
+    ax.set_xticks(range(len(order)), [f"{n}\n({(d['class'] == c).sum()} days)" for c, n in order])
+    ax.set_ylabel("Coherence")
+    ax.grid(axis="y", alpha=0.25, lw=0.5)
+    save(fig, "coherence")
+
+
+def dgim_trace():
+    from collections import deque
+    from analysis.stream_summaries import corrected, from_replay
+    from common.stream_algos import DGIM
+    n, dg, window, xs, est, exact = 10_000, DGIM(10_000), deque(maxlen=10_000), [], [], []
+    for i, m in enumerate(from_replay(OUT_DATA / "season_2020" / "replay_measured")):
+        pm = corrected(m)
+        if pm is None:
+            continue
+        bit = pm > 35.4
+        dg.add(bit)
+        window.append(bit)
+        if len(window) == n and i % 200 == 0:
+            xs.append(pd.to_datetime(m["arrival_time"], unit="s"))
+            est.append(dg.count())
+            exact.append(sum(window))
+    fig, ax = plt.subplots(figsize=(3.4, 1.8))
+    ax.plot(xs, exact, color="#333333", lw=1.2, label="Exact (10,000 bits)")
+    ax.plot(xs, est, color="#D55E00", lw=0.9, label=f"DGIM ({dg.nbytes} bytes at the end)")
+    ax.set_ylabel("Elevated readings\namong last 10,000")
+    ax.legend(frameon=False, loc="upper left")
+    ax.grid(alpha=0.25, lw=0.5)
+    fig.autofmt_xdate()
+    save(fig, "dgim")
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     d = sweeps()
     frontier(d)
     context(d)
     privacy()
+    latency_split()
+    coherence()
+    dgim_trace()
     shutil.copy(OUT_DATA / "overview" / "season_2020_compact.png", OUT / "season_2020.png")
     print(f"Figures in {OUT}")
 

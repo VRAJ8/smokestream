@@ -16,9 +16,9 @@ Repository: \url{https://github.com/VRAJ8/smokestream}. Paths below are relative
 
 \item \textbf{Version control.} Public GitHub repository above. The git history begins on October 27, 2026, when the code was put under version control, and continues through submission (see the commit log); every analysis in this report has its own commit.
 
-\item \textbf{Lessons learned.} Section~8 of this report and a slide in the presentation.
+\item \textbf{Lessons learned.} Section~\ref{sec:lessons} of this report and a slide in the presentation.
 
-\item \textbf{Prospects of publication.} The methodology (a validated watermark simulator, measured arrival delays, held-out monitor evaluation) and the frontier are, to our knowledge, new for sensor-network alerting; target venues are workshops at ACM DEBS and ACM SIGSPATIAL (Section~9). Code and sensor IDs are public for reproduction.
+\item \textbf{Prospects of publication.} The methodology (a validated watermark simulator, measured arrival delays, held-out monitor evaluation) and the frontier are, to our knowledge, new for sensor-network alerting; target venues are workshops at ACM DEBS and ACM SIGSPATIAL (Section~\ref{sec:conclusion}). Code and sensor IDs are public for reproduction.
 
 \item \textbf{Innovation.} A simulator of Spark's watermark semantics validated against the engine (and the previous-batch watermark finding), delay profiles measured from the live network, context freshness identified as the dominant knob, and course techniques applied to real failure modes: duplicate Kafka delivery, sensor privacy and fake sensors.
 
@@ -34,17 +34,17 @@ Repository: \url{https://github.com/VRAJ8/smokestream}. Paths below are relative
 
 \item \textbf{Creative presentation techniques.} Fade transitions throughout, native (editable) charts and a hand-built flow diagram instead of screenshots, large-number callouts for each finding, speaker notes on every slide, and a live four-part demo in the middle of the talk. [Team: add anything else used, e.g., an elevator-pitch video.]
 
-\item \textbf{Literature survey.} Section~2, organized into five subsections (smoke measurement; sensor correction; stream processing and event time; streaming algorithms and similarity search; privacy and data integrity), 38 references in IEEE style.
+\item \textbf{Literature survey.} Section~\ref{sec:related}, organized into five subsections (smoke measurement; sensor correction; stream processing and event time; streaming algorithms and similarity search; privacy and data integrity), 38 references in IEEE style.
 
-\item \textbf{Streaming algorithms.} Bloom filter (rotating, for duplicate Kafka deliveries), Flajolet--Martin (distinct active sensors), DGIM (elevated readings in a sliding window) and reservoir sampling (labeling sample): \repo{common/stream\_algos.py}, evaluated against exact answers by \repo{analysis/stream\_summaries.py} (Section~6.5, Table~\ref{tab:sketch}); tests in \texttt{tests/test\_stream\_algos.py}.
+\item \textbf{Streaming algorithms.} Bloom filter (rotating, for duplicate Kafka deliveries), Flajolet--Martin (distinct active sensors), DGIM (elevated readings in a sliding window) and reservoir sampling (labeling sample): \repo{common/stream\_algos.py}, evaluated against exact answers by \repo{analysis/stream\_summaries.py} (Section~\ref{sec:sketchres}, Table~\ref{tab:sketch}); tests in \texttt{tests/test\_stream\_algos.py}.
 
-\item \textbf{Stream processing frameworks.} Apache Kafka 4 (KRaft) and Spark Structured Streaming with event-time windows, watermarks, stateful aggregation and \texttt{foreachBatch} sinks: \repo{spark/streaming\_job.py}; throughput and latency in Section~6.4.
+\item \textbf{Stream processing frameworks.} Apache Kafka 4 (KRaft) and Spark Structured Streaming with event-time windows, watermarks, stateful aggregation and \texttt{foreachBatch} sinks: \repo{spark/streaming\_job.py}; throughput and latency in Section~\ref{sec:rq4}.
 
-\item \textbf{Locality-sensitive hashing.} Random-hyperplane LSH (SimHash, banded) over sensor-day curves: \repo{analysis/lsh\_sensors.py} (Section~6.6).
+\item \textbf{Locality-sensitive hashing.} Random-hyperplane LSH (SimHash, banded) over sensor-day curves: \repo{analysis/lsh\_sensors.py} (Section~\ref{sec:lshres}).
 
-\item \textbf{Privacy techniques.} k-anonymity by H3 generalization and the Laplace mechanism for differential privacy: \repo{analysis/privacy\_tradeoff.py} (Section~6.7, Fig.~\ref{fig:privacy}).
+\item \textbf{Privacy techniques.} k-anonymity by H3 generalization and the Laplace mechanism for differential privacy: \repo{analysis/privacy\_tradeoff.py} (Section~\ref{sec:privres}, Fig.~\ref{fig:privacy}).
 
-\item \textbf{Other course techniques.} Data poisoning and Sybil resistance (responsible use of crowdsourced data): \repo{analysis/poisoning\_test.py} (Section~6.8); a Type~2 slowly changing dimension and idempotent, self-verifying warehouse loads (\repo{warehouse/load\_snowflake.py}).
+\item \textbf{Other course techniques.} Data poisoning and Sybil resistance (responsible use of crowdsourced data): \repo{analysis/poisoning\_test.py} (Section~\ref{sec:poisonres}); a Type~2 slowly changing dimension and idempotent, self-verifying warehouse loads (\repo{warehouse/load\_snowflake.py}).
 
 \item \textbf{New tools not used in homework.} [Team to confirm against the homework list:] Uber H3 hexagonal indexing, MongoDB Atlas geospatial queries and TTL indexes, Apache Airflow 3, DuckDB (local tests of the Snowflake SQL), Snowflake H3 and geospatial functions, the PurpleAir, FIRMS, HMS, IEM and AirNow data services, and Tectonic for LaTeX.
 

@@ -44,7 +44,7 @@ We ask four research questions. \textbf{RQ1:} how much accuracy and alert reliab
 
 Our contributions are: (1) a measurement methodology (delay-aware replay with arrival delays measured from the live network, shared streaming and batch code, and held-out evaluation against regulatory monitors); (2) a simulator of Spark's watermark semantics that reproduces the engine window for window in seconds instead of hours, and two pitfalls it exposed; (3) the latency--accuracy frontier across four knobs on the 2020 season and three event windows; and (4) four course techniques applied where the problem needs them: stream summaries for duplicate delivery, sensor counts, alert persistence and labeling samples; LSH to find sensors that move together; k-anonymity and differential privacy for publishing data from sensors at people's homes; and a data-poisoning test of the quality check.
 
-\section{Related Work}
+\section{Related Work}\label{sec:related}
 \subsection{Wildfire smoke and its measurement}
 Smoke exposure harms respiratory health~\cite{reid2016}, has risen sharply across the United States~\cite{burke2021}, and has reversed much of the improvement in PM\textsubscript{2.5} in western states~\cite{burke2023}. Machine-learning models estimate daily smoke PM\textsubscript{2.5} on a 10\,km grid~\cite{childs2022} and fuse low-cost sensors into exposure models~\cite{bi2020}, but they are retrospective and daily. Satellite products supply the context we use: VIIRS 375\,m active-fire detections~\cite{schroeder2014} and analyst-drawn NOAA Hazard Mapping System smoke plumes~\cite{rolph2009}. The public AirNow Fire and Smoke Map~\cite{firemap} shows corrected sensors next to these layers, but its processing settings are fixed and their accuracy cost is not reported.
 
@@ -90,9 +90,30 @@ Season & Sites & Unhealthy h & Episodes & Peak \ugm & Plume days & Fires \\
 
 \textbf{Sensor history} costs points per row from the PurpleAir API, so we spend it where it matters: 10-minute data for the 2020 peak (August 16 to September 15; 40 sensors, 143,748 readings) and three four-day event windows: July 3--6, 2021 and 2024 (fireworks, the local-pollution test for RQ3; 26 and 28 sensors) and August 26--29, 2021 (Caldor fire smoke; 29 sensors). Sensors are sampled around each monitor (up to two within 5\,km), because a random sample left 15 of 20 monitors with no sensor nearby.
 
+\begin{table}[t]
+\caption{PurpleAir history used (10-minute averages). QC pass: readings that pass the range and channel-agreement checks. Points: API cost, measured at 4 points per row plus 2 per request.}
+\label{tab:purpleair}
+\centering\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{llrrrr}
+\toprule
+Run & Dates & Sensors & Readings & QC pass & Points \\
+\midrule
+2020 peak & Aug 16--Sep 15, 2020 & 40 & 143,748 & 86.2\% & 576k \\
+July 4, 2021 & Jul 3--6, 2021 & 26 & 14,365 & 94.8\% & 58k \\
+Caldor smoke & Aug 26--29, 2021 & 29 & 16,477 & 89.1\% & 66k \\
+July 4, 2024 & Jul 3--6, 2024 & 28 & 15,535 & 90.1\% & 62k \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \textbf{Correction.} Against 7,890 monitor-hours at 16 monitors, the EPA U.S.-wide linear correction~\cite{barkjohn2021} matched the monitors (bias $-0.6$\ugm, $R^2=0.83$), while a piecewise ``extended'' form found in public tools overestimated smoke-level concentrations by 46--67\% and uncorrected sensors read 1.7--2.1 times high. We use the linear form.
 
-\textbf{Arrival delays} were measured by polling 200 live sensors every 5 minutes (207 usable poll pairs, 43,600 samples, October 2026): readings were a median 79.5\,s old when polled (95th percentile 141\,s), and 98 sensor outages were observed. The replay draws from this profile.
+\textbf{Arrival delays} were measured by polling 200 live sensors every 5 minutes (207 usable poll pairs, 43,600 samples, October 2026): readings were a median 79.5\,s old when polled (95th percentile 141\,s), and 98 sensor outages were observed. The replay draws from this profile: a reading with event time $e$ arrives at
+\begin{equation}
+a = e + \delta, \qquad \delta \sim \hat F_{\text{staleness}},
+\end{equation}
+where $\hat F_{\text{staleness}}$ is the empirical distribution of the 101 measured quantiles, and each sensor starts an outage at the observed rate ($7.9\times10^{-6}$ per sensor-second) for a duration drawn from the observed outages.
 
 \section{System}
 Fig.~\ref{fig:flow} shows the flow. The replay tool re-sends historical readings in arrival order: each reading's arrival time is its event time plus a delay drawn from the measured profile, with outages injected at the observed rate. It writes to Kafka at a chosen speed, or to one file per simulated minute.
@@ -129,32 +150,152 @@ Fig.~\ref{fig:flow} shows the flow. The replay tool re-sends historical readings
 \label{fig:flow}
 \end{figure*}
 
-\textbf{Shared transformation code.} Both pipelines run the same PySpark code. Readings are validated (range checks; the two laser channels must agree within 5\ugm{} or 70\%), corrected, mapped to H3 hexagons at resolution 7 (about 5\,km\textsuperscript{2}), and averaged per sensor in tumbling event-time windows. The streaming job applies a watermark; the batch job sees every reading.
+\subsection{Ingestion}
+Each message carries the sensor index, event time, arrival time, location, both laser channels, PM\textsubscript{1} and relative humidity. The Kafka producer keys messages by sensor index, so one sensor's readings stay ordered within a partition; demo topics have four partitions. For experiments the same messages are written to one JSON-lines file per simulated minute, which Spark reads one file per micro-batch.
 
-\textbf{Neighbour quality check.} A sensor is deviant in a window when it differs from the median of other sensors within two hexagon rings by more than 10\ugm{} and 100\%, and is excluded once it was deviant in at least 75\% of its windows over the last \emph{QC history} minutes (at least two windows, at least two neighbours).
+\subsection{Stream processing}
+Both pipelines run the same PySpark code. Readings are validated (range checks; the two laser channels must agree within 5\ugm{} or 70\%) and corrected with the EPA U.S.-wide equation~\cite{barkjohn2021},
+\begin{equation}
+\text{PM}_{2.5} = \max\left(0,\; 0.524\,\overline{\text{PA}} - 0.0862\,\text{RH} + 5.75\right),
+\end{equation}
+where $\overline{\text{PA}}$ is the mean of the two channels and RH the relative humidity. Each reading is mapped to an H3 cell at resolution 7 (about 5\,km\textsuperscript{2}) and averaged per sensor in tumbling event-time windows. The streaming job declares a watermark of $w$ minutes, so a window is finalized once the maximum event time seen exceeds its end by $w$; the batch job sees every reading. The live job uses a 5-second processing-time trigger with checkpointing, and a \texttt{foreachBatch} sink appends finalized windows to Parquet and upserts them into MongoDB.
 
-\textbf{Context and labels.} Each elevated hexagon window (AQI above 100) receives four signals: \emph{extent} (the share of hexagons within three rings also elevated), the PM\textsubscript{1}/PM\textsubscript{2.5} ratio, HMS plume overlap, and an upwind fire (within 150\,km and 45\textdegree{} of the upwind direction, or 50\,km in calm air). Context counts only if it was published and picked up by a refresh at the configured interval before the decision time (window end plus watermark). A rule labels each window \emph{wildfire}, \emph{local} or \emph{uncertain}; a smoke alert fires when AQI exceeds 150 and the label is not local.
+\subsection{Neighbour quality check}
+For sensor $i$ in a window, let $m_i$ be the median of the other sensors within two hexagon rings (about 5\,km). The sensor is deviant when
+\begin{equation}
+|x_i - m_i| > 10\text{\ugm} \quad\text{and}\quad \frac{|x_i - m_i|}{\max(m_i, 5)} > 1,
+\end{equation}
+provided at least two neighbours report. It is excluded once it was deviant in at least 75\% of its informed windows over the last \emph{QC history} minutes (at least two windows). Short history removes faulty sensors quickly but can also suppress real local spikes and the leading edge of a smoke front.
 
-\textbf{Storage and orchestration.} Finalized windows are upserted into a MongoDB Atlas collection, one document per hexagon with GeoJSON location, a 2dsphere index for ``AQI near me'' queries and a 24-hour TTL index; an upsert keeps only a hexagon's latest window even when micro-batches arrive out of order. A Snowflake~\cite{dageville2016} star schema holds monitors, fires, plumes, wind, readings and every pipeline run, with a Type~2 slowly changing sensor dimension and replace-by-slice loads, so every stream-versus-hindsight comparison is a self-join; the loader recomputes RQ1 in SQL and fails unless it matches the Python results. Six Airflow DAGs fetch live fires (FIRMS near-real-time), plumes, wind and AirNow monitor data on schedules that mirror the context-refresh knob, backfill the historical seasons, and load Snowflake; each task runs project code in its own environment.
+\subsection{Context and labels}
+Each elevated hexagon window (AQI above 100) receives four signals: \emph{extent} (the share of hexagons within three rings also elevated), the PM\textsubscript{1}/PM\textsubscript{2.5} ratio (fine particles dominate smoke), HMS plume overlap, and an upwind fire (within 150\,km and 45\textdegree{} of the upwind direction, or within 50\,km in calm air). Context counts only if it was published and picked up by a refresh at the configured interval before the decision time, the window end plus the watermark; this is how context freshness becomes a knob. A rule labels each window \emph{wildfire}, \emph{local} or \emph{uncertain}, and a smoke alert fires when AQI exceeds 150 and the label is not local.
+
+\subsection{Live store}
+Finalized windows are upserted into a MongoDB Atlas collection with one document per hexagon: H3 id, GeoJSON point, window bounds, PM\textsubscript{2.5}, AQI and category, label, alert flag and emission time. A unique index on the H3 id, a 2dsphere index for \$geoNear ``AQI near me'' queries and a 24-hour TTL index keep it small and current. Micro-batches can finish out of order, so the upsert replaces a document only with a later window.
+
+\subsection{Warehouse}
+A Snowflake~\cite{dageville2016} star schema (Table~\ref{tab:schema}) holds monitors, context, readings and every pipeline run side by side, so every stream-versus-hindsight comparison is a self-join on hexagon and window. The sensor dimension is a Type~2 slowly changing dimension: a sensor that moves gets its current row closed and a new version, and each reading joins the version valid at its time. Loads replace the slice they own (a season or a run), so reruns never duplicate rows, and the loader recomputes RQ1 in SQL and fails unless it matches the Python results; the same SQL runs in DuckDB in the test suite.
+
+\begin{table}[t]
+\caption{Warehouse star schema (Snowflake).}
+\label{tab:schema}
+\centering\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{>{\raggedright\arraybackslash}p{34mm}>{\raggedright\arraybackslash}p{48mm}}
+\toprule
+Table & Grain and role \\
+\midrule
+\texttt{DIM\_SENSOR} & sensor version (SCD Type 2: location, validity) \\
+\texttt{DIM\_H3\_CELL} & H3 cell, resolution and center point \\
+\texttt{DIM\_TIME} & 2-minute slot, UTC and local, season \\
+\texttt{DIM\_PIPELINE\_CONFIG} & run and knob setting (mode, window, \dots) \\
+\texttt{FACT\_READING} & one corrected reading with its QC flag \\
+\texttt{FACT\_HEX\_WINDOW} & one hexagon window of one run and setting \\
+\texttt{FACT\_ALERT} & hexagon windows that raised a smoke alert \\
+\texttt{FACT\_MONITOR\_HOURLY} & monitor-hour of PM\textsubscript{2.5} (ground truth) \\
+\texttt{FACT\_FIRE\_DETECTION} & fire detection with publication time \\
+\texttt{FACT\_PLUME\_CELL} & H3 cell under an HMS plume, with validity \\
+\texttt{FACT\_WIND\_OBS} & airport wind observation \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Orchestration}
+Six Airflow DAGs (Table~\ref{tab:dags}) run in their own environment and call project scripts, so Airflow and Spark never share packages. The live feeds merge each fetch into one file per day and keep the time a record was first fetched as its publication time, so live data obeys the same freshness rules as the replays. Their schedules are the live counterpart of the context-refresh knob.
+
+\begin{table}[t]
+\caption{Airflow DAGs.}
+\label{tab:dags}
+\centering\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{>{\raggedright\arraybackslash}p{36mm}>{\raggedright\arraybackslash}p{11mm}>{\raggedright\arraybackslash}p{33mm}}
+\toprule
+DAG & Schedule & Source and output \\
+\midrule
+\texttt{ingest\_fire\_detections} & 30 min & FIRMS near-real-time VIIRS fires \\
+\texttt{ingest\_smoke\_plumes} & 3 h & HMS plumes as H3 cells \\
+\texttt{ingest\_weather} & 1 h & ASOS airport wind \\
+\texttt{ingest\_monitors} & hourly & AirNow PM\textsubscript{2.5} (evaluation only) \\
+\texttt{backfill\_fire\_seasons} & manual & AQS, FIRMS, HMS, ASOS archives \\
+\texttt{load\_snowflake} & daily & setup, load, verify against Python \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \section{Methodology}
-\textbf{A validated simulator.} Replaying a 60-day season through the engine in 1-minute micro-batches took about 0.27\,s per batch, or 6.5 hours per configuration. We therefore simulate the engine: records are grouped into the same arrival slices, and a window is finalized in the first batch whose watermark passes its end. Our first version dropped late readings using the current batch's watermark, and an automated test that runs Spark and the simulator on the same replay failed: Spark (since 3.4) filters late rows with the \emph{previous} batch's watermark and evicts state with the current one. With that rule the outputs match exactly, window for window. A second pitfall: Spark judges lateness once per micro-batch, so if a batch spans hours of data no reading is ever late and every watermark looks identical; replays must slice batches in simulated time.
+\subsection{A validated simulator of watermark semantics}
+Replaying a 60-day season through the engine in 1-minute micro-batches took about 0.27\,s per batch, or 6.5 hours per configuration, which rules out a sweep of dozens of configurations. We therefore simulate the engine. Records are grouped into the same arrival slices the replay produces; for slice $k$ let $W_k = \max e - w$ over all records seen through slice $k$. A window is finalized in the first slice whose $W_k$ reaches its end, and a record in slice $k$ is dropped as late only if its window ended at or before $W_{k-1}$.
 
-\textbf{Evaluation.} Every configuration is compared with the hindsight baseline at the same window size (RMSE, coverage, label agreement) and with held-out monitors: each monitor-hour is estimated from hexagons within 5\,km (inverse-distance weighted), giving RMSE, alert precision and recall on Unhealthy hours, false-alarm rate, and lead time over the official hourly value (end of hour plus 30 minutes).
+That last rule was not our first guess. Our first version used $W_k$, and an automated test that runs Spark and the simulator on the same replay and compares every window failed: the engine counted readings the simulator had dropped. Spark (since 3.4) filters late rows with the previous batch's watermark and evicts state with the current one. With the corrected rule the outputs match exactly, including neighbour exclusions carried across batches, context features and labels. A second pitfall concerns batch granularity: Spark judges lateness once per micro-batch, so if each batch spans hours of data no reading is ever late and every watermark setting produces identical output. Replays must slice batches in simulated time, not wall-clock time.
 
-\textbf{Experiment design.} Window 10, 30 and 60 minutes; watermark 0, 5 and 15 minutes; QC history 30, 120 and 360 minutes; context refresh 15, 60 and 360 minutes; each varied around the default (10, 5, 120, 60), with watermark and QC history crossed: 13 settings per run.
+\subsection{Evaluation}
+Every configuration is compared with the hindsight baseline at the same window size (RMSE, coverage, label agreement) and with held-out monitors. For monitor $s$ and hour $h$, PM\textsubscript{2.5} is estimated from the hexagon windows $c$ within 5\,km,
+\begin{equation}
+\hat y_{s,h} = \frac{\sum_c w_{s,c}\, x_{c,h}}{\sum_c w_{s,c}}, \qquad w_{s,c} = \max(d_{s,c}, 0.5\,\text{km})^{-2},
+\end{equation}
+giving RMSE, bias and $R^2$, and, on Unhealthy hours (above 55.4\ugm), alert precision, recall and false-alarm rate. For each Unhealthy episode, the lead time is
+\begin{equation}
+L = (h_{\text{onset}} + 1\,\text{h} + 30\,\text{min}) - t_{\text{first alert}},
+\end{equation}
+the time between the stream's first nearby alert and when the official hourly value would have been posted. For RQ3, two people label a stratified sample of elevated events as wildfire, local or uncertain, blind to the pipeline's labels; agreement is measured with Cohen's kappa.
 
-\textbf{Stream summaries.} On the 2020 replay in arrival order we deliver 2\% of messages a second time up to 10 minutes later, as Kafka's at-least-once delivery does after retries, and compare each summary with an exact computation: a rotating pair of Bloom filters keyed on (sensor, event time) with a one-hour period; a Flajolet--Martin sketch (64 hash functions, median of group means) of distinct sensors per hour; DGIM over the last $N$ readings of the bit ``above 35.4\ugm''; and reservoir sampling ($k=50$) of Unhealthy readings, repeated over 1,000 seeds.
+\subsection{Experiment design}
+Window 10, 30 and 60 minutes; watermark 0, 5 and 15 minutes; QC history 30, 120 and 360 minutes; context refresh 15, 60 and 360 minutes. Each knob is varied around the default (10, 5, 120, 60), with watermark and QC history crossed: 13 settings per run, each scored against its own hindsight baseline and the monitors.
 
-\textbf{LSH.} Each sensor-day becomes a 144-slot curve of corrected PM\textsubscript{2.5} (log-scaled, z-normalized, so cosine similarity is Pearson correlation). SimHash with 16 bands of 8 hyperplanes proposes candidate pairs, which are verified exactly at correlation 0.8. \emph{Coherence} is the share of other sensors on the same day that a sensor moves with; regional smoke should raise it.
+\subsection{Stream summaries}
+On the 2020 replay in arrival order we deliver 2\% of messages a second time, up to 10 minutes later, as Kafka's at-least-once delivery does after producer retries or consumer restarts, and compare each summary with an exact computation.
+\emph{Bloom filter}~\cite{bloom1970}: keyed on (sensor, event time); for capacity $n$ and target false-positive rate $p$ it uses
+\begin{equation}
+m = \left\lceil -\frac{n \ln p}{(\ln 2)^2} \right\rceil \text{ bits}, \qquad k = \frac{m}{n}\ln 2 \text{ hashes}.
+\end{equation}
+Two filters rotate every hour, so a key is remembered for one to two hours, longer than any redelivery. \emph{Flajolet--Martin}~\cite{flajolet1985}: for each of 64 hash functions a bitmap of observed trailing-zero counts; with $R_j$ its lowest unset bit, the distinct count is estimated as $2^{\bar R}/0.77351$, taking the median over 8 groups of the mean $R_j$. \emph{DGIM}~\cite{datar2002}: buckets of power-of-two sizes, at most two per size, count the 1s (readings above 35.4\ugm) among the last $N$ readings within 50\% in $O(\log^2 N)$ bits. \emph{Reservoir sampling}~\cite{vitter1985}: after $t$ items each is kept with probability $k/t$; we sample $k=50$ Unhealthy readings, the stream labelers would draw from, over 1,000 seeds.
 
-\textbf{Privacy.} A hexagon with one sensor publishes one household's readings. For hourly hexagon means we apply (a) k-anonymity by generalization: publish at resolution 7 only if $k$ distinct sensors contribute, else at the parent resolution 6 or 5, else suppress; and (b) the Laplace mechanism: each sensor's hourly value is clipped to $[0, C]$, so the mean of $n$ sensors has sensitivity $C/n$ and noise scale $C/(n\varepsilon)$ per hourly release (a day composes to $24\varepsilon$).
+\subsection{Locality-sensitive hashing}
+Each sensor-day becomes a 144-slot curve of corrected PM\textsubscript{2.5}, log-scaled and z-normalized, so the cosine similarity of two curves is their Pearson correlation $\rho$. SimHash~\cite{charikar2002} draws random hyperplanes; two curves at angle $\theta = \arccos\rho$ agree on one bit with probability $1-\theta/\pi$. With $b=16$ bands of $r=8$ bits, a pair becomes a candidate with probability
+\begin{equation}
+P(\rho) = 1 - \left(1 - (1 - \arccos(\rho)/\pi)^{r}\right)^{b},
+\end{equation}
+0.94 at $\rho=0.8$ and 0.23 at $\rho=0.3$. Candidates are verified exactly at $\rho\ge0.8$. A sensor's \emph{coherence} is the share of the other sensors on the same day it moves with; regional smoke should raise it.
 
-\textbf{Poisoning.} Into the July 2021 window we inject fake sensors reporting a steady, plausible 120\ugm{} (AQI 184) for 24 hours with both channels in agreement, so the channel check cannot catch them: four \emph{lone} fakes, each in the hexagon of a different honest sensor, and three \emph{colluding} fakes in one hexagon. We run the hindsight pipeline with the neighbour check on and off.
+\subsection{Privacy}
+A hexagon with one sensor publishes one household's readings. For hourly hexagon means we apply (a) k-anonymity by generalization~\cite{sweeney2002}: publish at resolution 7 only if $k$ distinct sensors contribute, otherwise at the parent cell (resolution 6, then 5) once it has $k$, otherwise suppress; and (b) the Laplace mechanism~\cite{dwork2006}. Each sensor's hourly value is clipped to $[0, C]$, so replacing one sensor changes the mean of $n$ sensors by at most $C/n$, and the published value is
+\begin{equation}
+\tilde x = \bar x + \text{Lap}\!\left(\frac{C}{n\,\varepsilon}\right).
+\end{equation}
+$\varepsilon$ is per hourly release; a day of releases composes to $24\varepsilon$. Utility is measured against the non-private resolution-7 means: RMSE and agreement on the AQI-above-100 flag, averaged over 10 noise seeds.
+
+\subsection{Data poisoning}
+Into the July 2021 window we inject fake sensors that report a steady, plausible 120\ugm{} (AQI 184) for 24 hours with both channels in agreement, so the channel check cannot catch them: four \emph{lone} fakes, each in the hexagon of a different honest sensor, and three \emph{colluding} fakes in one hexagon (a Sybil attack~\cite{douceur2002}). We run the hindsight pipeline with the neighbour check on and off and count false Unhealthy hexagon-windows.
 
 \section{Results}
 \subsection{RQ1: the cost of real time}
 Under the measured delay profile, the 2020 stream missed 2.0--2.1\% of readings. With 10-minute windows, streaming hexagon values differed from full hindsight by an RMSE of 0.11--0.12\ugm{} (0.6\ugm{} with 30- or 60-minute windows), about 150 times smaller than the error of sensors against monitors (17.4\ugm). The partial delay profile we used for the status report gave the same picture. Against monitors, 2020 smoke alerts were 88\% precise with a 2\% false-alarm rate and caught 54\% of Unhealthy monitor-hours (sensor coverage, not latency, limits recall); they arrived a median 99 minutes before the official hourly value, against 120 minutes for the hindsight baseline. The event windows agree: late-data RMSE was 0.18--0.61\ugm.
+
+\begin{table*}[t]
+\caption{All 13 settings on the 2020 season (measured delay profile). Latency: window plus median wait until the watermark closes it. Missed: readings dropped as late. RMSE and labels are against the hindsight baseline at the same window; alerts and lead time are against held-out monitors (14,724 monitor-hours at 20 sites).}
+\label{tab:sweep}
+\centering\footnotesize
+\begin{tabular}{rrrrrrrrrrr}
+\toprule
+Window & Watermark & QC hist. & Context & Latency & Missed & RMSE vs. & Label & Smoke-alert & Smoke-alert & Lead \\
+(min) & (min) & (min) & (min) & (min) & (\%) & hindsight & agreement & precision & recall & (min) \\
+\midrule
+10 & 5 & 120 & 60 & 31 & 2.0 & 0.122 & 90.6\% & 0.884 & 0.541 & 99 \\
+30 & 5 & 120 & 60 & 51 & 2.0 & 0.603 & 92.6\% & 0.886 & 0.542 & 69 \\
+60 & 5 & 120 & 60 & 81 & 2.0 & 0.588 & 93.7\% & 0.884 & 0.541 & 69 \\
+10 & 0 & 120 & 60 & 21 & 2.1 & 0.122 & 90.6\% & 0.884 & 0.541 & 109 \\
+10 & 15 & 120 & 60 & 41 & 2.0 & 0.122 & 91.1\% & 0.884 & 0.541 & 89 \\
+10 & 5 & 30 & 60 & 31 & 2.0 & 0.107 & 90.6\% & 0.884 & 0.541 & 99 \\
+10 & 5 & 360 & 60 & 31 & 2.0 & 0.114 & 90.6\% & 0.884 & 0.541 & 99 \\
+10 & 5 & 120 & 15 & 31 & 2.0 & 0.122 & 92.3\% & 0.884 & 0.541 & 99 \\
+10 & 5 & 120 & 360 & 31 & 2.0 & 0.122 & 84.1\% & 0.884 & 0.541 & 99 \\
+10 & 0 & 30 & 60 & 21 & 2.1 & 0.107 & 90.6\% & 0.884 & 0.541 & 109 \\
+10 & 0 & 360 & 60 & 21 & 2.1 & 0.114 & 90.6\% & 0.884 & 0.541 & 109 \\
+10 & 15 & 30 & 60 & 41 & 2.0 & 0.106 & 91.1\% & 0.884 & 0.541 & 89 \\
+10 & 15 & 360 & 60 & 41 & 2.0 & 0.114 & 91.1\% & 0.884 & 0.541 & 89 \\
+\bottomrule
+\end{tabular}
+\end{table*}
 
 \subsection{RQ2: the frontier}
 Fig.~\ref{fig:frontier} shows accuracy against decision latency. The watermark moves latency by 10 minutes per step without changing accuracy (0.122\ugm{} at 0, 5 or 15 minutes in 2020): readings are rarely later than the median 80\,s delay, so a short watermark is almost free and every extra minute of waiting buys nothing. Longer windows add 20--50 minutes and do not consistently bring the stream closer to hindsight (0.60 vs.\ 0.12\ugm{} in 2020, 0.18 vs.\ 0.61\ugm{} in the 2021 smoke). QC history barely matters (0.107--0.122\ugm). \textbf{Context freshness is the knob that matters} (Fig.~\ref{fig:context}): with 6-hour refreshes instead of 15 minutes, label agreement with hindsight fell from 92.3\% to 84.1\% in 2020, from 87.7\% to 84.4\% in the 2021 smoke, and from 100\% to 55\% in the July 2021 window. Lead time follows the watermark: 109, 99 and 89 minutes at 0, 5 and 15 minutes.
@@ -176,11 +317,42 @@ Fig.~\ref{fig:frontier} shows accuracy against decision latency. The watermark m
 \subsection{RQ3: smoke or fireworks? (preliminary)}
 On the two July 4 windows the pipeline behaved very differently. In 2021, 15 of 16 elevated events were labeled \emph{uncertain}: sparse sensors gave no extent signal either way. In 2024, 13 of 14 were labeled \emph{wildfire}: fire detections and plumes elsewhere in the region made fireworks look like smoke, the failure mode we anticipated for sparse sensor areas. In the 2021 smoke window, alerts caught 88\% of Unhealthy monitor-hours, a median 169 minutes early, but only 49\% were precise. Blind hand labels of these 100 events by two labelers (Cohen's kappa) are in progress; until then these counts are pipeline labels, not accuracy.
 
-\subsection{RQ4: performance}
+\begin{table}[t]
+\caption{Event windows at the default setting (10-minute window, 5-minute watermark). Label agreement with hindsight at three context-refresh intervals; smoke alerts against monitors.}
+\label{tab:windows}
+\centering\footnotesize
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabular}{lrrrrrrr}
+\toprule
+ & RMSE vs. & \multicolumn{3}{c}{Label agreement (\%)} & Alert & Alert & Lead \\
+Window & hindsight & 15 min & 60 min & 6 h & prec. & recall & (min) \\
+\midrule
+July 4, 2021 & 0.228 & 100.0 & 100.0 & 55.2 & 1.00 & 0.17 & 39 \\
+Caldor smoke & 0.607 & 87.7 & 87.9 & 84.4 & 0.49 & 0.88 & 169 \\
+July 4, 2024 & 0.183 & 98.1 & 96.3 & 98.1 & 1.00 & 0.33 & 69 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{RQ4: performance}\label{sec:rq4}
 On one laptop, Kafka and Spark sustained 641 messages/s at 300$\times$ real time on synthetic load with 95th-percentile end-to-end latency of 11.5\,s, and drained a backlog at about 14,500 messages/s. On real data, replaying 14 hours of the September 10--11, 2020 smoke at 120$\times$ through Kafka, Spark and MongoDB Atlas put all 2,411 windows into the live store with a median latency of 16.4\,s (95th percentile 17.2\,s). Of that, 9.5\,s is \emph{designed} waiting, the 19 simulated minutes a window waits for later readings to pass the watermark, and about 7\,s is the system: the 5-second trigger, processing and the Atlas write. The simulator replaced 6.5 hours per configuration with seconds.
 
-\subsection{Stream summaries}
-Table~\ref{tab:sketch} compares each summary with the exact answer on 145,017 deliveries. The rotating Bloom filter caught all 2,843 duplicate deliveries (no false negatives, by construction) and wrongly dropped 7 unique readings (0.005\%), at 14.4 bits per key instead of 128. Flajolet--Martin counted active sensors per hour within 3.4\% on average in 256 bytes; DGIM stayed within its 50\% bound and used 52 bytes instead of 1,250 for a 10,000-reading window. The reservoir kept each tenth of the stream 9.8--10.3\% of the time (ideal 10\%), so a labeling sample drawn as events arrive is unbiased toward early or late events. At our sample size an exact set would also fit in memory; the summaries keep fixed memory as the network grows to tens of thousands of sensors.
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{latency_split}
+\caption{Where real-data latency goes (14 hours of September 2020 at 120$\times$, 2,411 windows). The designed wait is the time a window waits for later readings to pass the watermark, converted to wall-clock seconds; the rest is the trigger, processing and the MongoDB Atlas write.}
+\label{fig:latency}
+\end{figure}
+
+\subsection{Stream summaries}\label{sec:sketchres}
+Table~\ref{tab:sketch} compares each summary with the exact answer on 145,017 deliveries. The rotating Bloom filter caught all 2,843 duplicate deliveries (no false negatives, by construction) and wrongly dropped 7 unique readings (0.005\%), at 14.4 bits per key instead of 128. Flajolet--Martin counted active sensors per hour within 3.4\% on average in 256 bytes; DGIM stayed within its 50\% bound and used 52 bytes instead of 1,250 for a 10,000-reading window. The reservoir kept each tenth of the stream 9.8--10.3\% of the time (ideal 10\%), so a labeling sample drawn as events arrive is unbiased toward early or late events. At our sample size an exact set would also fit in memory; the summaries keep fixed memory as the network grows to tens of thousands of sensors. Fig.~\ref{fig:dgim} follows DGIM across the season: it tracks the exact count through the September smoke, and the sawtooth comes from counting the oldest bucket as half.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{dgim}
+\caption{DGIM estimate against the exact count of readings above 35.4\ugm{} among the last 10,000, over the 2020 replay.}
+\label{fig:dgim}
+\end{figure}
 
 \begin{table}[t]
 \caption{Stream summaries against exact answers (2020 replay).}
@@ -200,11 +372,36 @@ Reservoir, $k$=50 & uniform event sample & $\pm$0.34 pp per decile & 50 items \\
 \end{tabular}
 \end{table}
 
-\subsection{LSH: which sensors move together}
+\subsection{LSH: which sensors move together}\label{sec:lshres}
 Within each of 39 days, SimHash found 98.8\% of sensor pairs correlated above 0.8. Pooling all 1,025 sensor-days (524,800 pairs), it proposed 23.9\% of pairs as candidates and still found 98.2\% of the 16,246 similar pairs, a four-fold cut in comparisons that grows with the network. Coherence separates regional smoke from clean air on average: 0.28 on smoke days against 0.13 on clean days and 0.17 on moderate days, but the spread is wide (standard deviation 0.17). July 4 split: 0.29 in 2021, like a smoke day, because fireworks happen everywhere at once, and 0.10 in 2024. Coherence is a useful extra signal for RQ3, not a classifier on its own.
 
-\subsection{Privacy: what safe publishing costs}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{coherence}
+\caption{Coherence per day (share of other sensors moving together, correlation at least 0.8), by day type. Bars are means.}
+\label{fig:coherence}
+\end{figure}
+
+\subsection{Privacy: what safe publishing costs}\label{sec:privres}
 Our sensors are sparse: only 3.7\% of hexagon-hours at resolution 7 have two or more sensors. k-anonymity therefore forces generalization: with $k=3$, 48\% of hexagon-hours can be published (all at resolution 6 or 5) and AQI-above-100 alerts keep 93--94\% precision and recall; with $k=5$ only 11\% can. Differential privacy with the conservative clip $C=500$\ugm{} is unusable at these sizes (RMSE above 150\ugm{} at $\varepsilon=1$). Clipping instead at $C=100$\ugm{}, all an AQI-100 alert needs, makes it workable (Fig.~\ref{fig:privacy}): with $k=3$, $\varepsilon=2$ per hourly release keeps 87\% of alerts at 74\% precision, and $k=5$ keeps 90\% at 81\%. Privacy for a sparse network is bought with coverage and coarser cells; clipping to the decision threshold is the cheapest lever.
+
+\begin{table}[t]
+\caption{Privacy against utility on 20,139 hexagon-hours (2020, $C = 100$\ugm, 10 seeds). Published: share of hexagon-hours released; P/R: precision and recall of the AQI-above-100 flag against the non-private values.}
+\label{tab:privacy}
+\centering\scriptsize
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabular}{rrrrrrr}
+\toprule
+$k$ & Published & No noise & $\varepsilon = 10$ & $\varepsilon = 2$ & $\varepsilon = 1$ \\
+ & & P / R & P / R & P / R & P / R \\
+\midrule
+1 & 100\% & 1.00 / 1.00 & 0.84 / 0.92 & 0.54 / 0.74 & 0.46 / 0.65 \\
+2 & 63\% & 0.94 / 0.95 & 0.90 / 0.93 & 0.68 / 0.84 & 0.56 / 0.76 \\
+3 & 48\% & 0.93 / 0.94 & 0.91 / 0.93 & 0.74 / 0.87 & 0.62 / 0.79 \\
+5 & 11\% & 0.94 / 0.94 & 0.93 / 0.94 & 0.81 / 0.90 & 0.69 / 0.84 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \begin{figure}[t]
 \centering
@@ -213,13 +410,34 @@ Our sensors are sparse: only 3.7\% of hexagon-hours at resolution 7 have two or 
 \label{fig:privacy}
 \end{figure}
 
-\subsection{Poisoning: can fake sensors raise alerts?}
+\subsection{Poisoning: can fake sensors raise alerts?}\label{sec:poisonres}
 Without the neighbour check, four lone fakes produced 438 false Unhealthy hexagon-windows in 24 hours. With it, three of the four were excluded within one or two windows (at most one false alert each); the fourth had only one honest sensor within two rings, below the two-neighbour minimum, and alerted all 144 windows (146 in total). Three colluding fakes in one hexagon alerted in all 144 windows with or without the check: they are each other's neighbours, so the median they are compared to is their own value. The check stops faulty sensors where the network is dense, but not a Sybil attack or a lone fake in a sparse area; defenses would weigh sensor age and history, limit how much one owner's sensors can count, and cross-check satellite plumes and monitors.
+
+\begin{table}[t]
+\caption{False Unhealthy hexagon-windows in 24 hours (July 2021 window; 0 in the clean run).}
+\label{tab:poison}
+\centering\footnotesize
+\begin{tabular}{lrrr}
+\toprule
+Scenario & Fakes & Check off & Check on \\
+\midrule
+Lone, $\ge$2 honest neighbours & 3 & 294 & 2 \\
+Lone, 1 honest neighbour & 1 & 144 & 144 \\
+Colluding, one hexagon & 3 & 144 & 144 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \section{Discussion and Threats to Validity}
 \textbf{Delay profile.} About 18 hours of live polling over 31 hours; the median matched an earlier partial profile (80 vs.\ 82\,s), but night hours are under-sampled. \textbf{Context timing.} Archived fire and plume records lack publication times; we assume typical delays (3 hours for FIRMS, 2 hours after an HMS plume ends). \textbf{Ground truth.} Monitors are sparse and hourly, and near-fire monitors dominate squared errors. \textbf{Sample.} Points-based API pricing limits each window to a few dozen sensors; sparsity drives the RQ3, privacy and poisoning findings, and a denser network would change them, probably for the better. \textbf{Labels.} The labeling rule is deliberately simple and untuned, and RQ3 is preliminary until the hand labels are scored. \textbf{Simulator scope.} The simulator reproduces Spark's semantics for the file-sliced replay; the engine remains the reference for performance.
 
-\section{Lessons Learned and Best Practices}
+\subsection*{Recommendations for practitioners}
+Our results suggest a few settings for anyone building a real-time map from crowdsourced sensors. Keep the watermark short (a few minutes, a little above the typical arrival delay): it buys almost no accuracy, while every extra minute delays every alert. Refresh slow context sources as often as they publish; on our data the refresh interval moved label agreement by up to 45 points while the watermark moved it by under one. Sample or recruit sensors around regulatory monitors so the system can be checked against ground truth. When privacy matters, generalize sparse cells to a coarser resolution and clip values at the decision threshold before adding noise. Treat the neighbour check as a defense against faulty sensors, not malicious ones.
+
+\section{Responsible Use}
+A smoke map is a public-health tool, so its errors have costs on both sides: a missed alert leaves people outdoors in unhealthy air, and repeated false alarms teach them to ignore the next one. We report both precision and recall and state where coverage, not latency, limits recall. Sensor hosts are private households; we publish hexagon aggregates, never sensor coordinates or raw readings, and Section~\ref{sec:privres} quantifies what stronger protections cost. Because anyone can register a sensor, we tested the quality check against fake devices and report where it fails. PurpleAir's terms do not allow redistributing raw readings, so we release code, sensor IDs and time ranges instead. Coverage is uneven: even with sensors sampled around monitors, only 16 of 20 monitors had a sensor within 5\,km, and areas without sensors get no alert at all, so a real deployment should show where it cannot see.
+
+\section{Lessons Learned and Best Practices}\label{sec:lessons}
 \begin{itemize}
 \item \textbf{Test the engine, not the documentation.} An automated equivalence test between Spark and our simulator exposed that late rows are filtered with the previous batch's watermark. Without it every RQ2 number would have been subtly wrong.
 \item \textbf{Control micro-batch size in simulated time.} Large replay batches silently make every watermark setting identical.
@@ -230,7 +448,7 @@ Without the neighbour check, four lone fakes produced 438 false Unhealthy hexago
 \item \textbf{Sparse networks change everything downstream.} Coverage limited alert recall, the extent signal, privacy and poisoning defense alike; sampling sensors around monitors was the single most useful data decision.
 \end{itemize}
 
-\section{Conclusion and Future Work}
+\section{Conclusion and Future Work}\label{sec:conclusion}
 Real time is cheap where engineers worry most and expensive where they look least: with arrival delays measured from the live network, late data costs a fraction of a microgram, while stale fire and plume context costs up to 45 points of label agreement. Smoke alerts can arrive about an hour and a half before official values. Next steps are scoring RQ3 with two labelers, denser sensor samples for 2021 and 2024, sensitivity to faster and slower delay profiles, and a Sybil-resistant quality check. We plan to submit the measurement methodology and frontier to a workshop at ACM DEBS or ACM SIGSPATIAL.
 
 \section*{Data and Code Availability}
