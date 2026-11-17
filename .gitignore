@@ -8,3 +8,4 @@ node_modules/
 .secrets/
 .venv-airflow/
 airflow_home/
+paper/report/*.pdf
