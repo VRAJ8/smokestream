@@ -1,0 +1,26 @@
+Card Name,List,Labels,Description,Due Date
+Choose topic and write proposal,Done,Sprint 1,SmokeStream proposal submitted,2026-10-01
+Replay tool with delays and outages,Done,Sprint 2,replay/replay.py,2026-10-08
+Spark streaming and hindsight batch jobs,Done,Sprint 2,spark/streaming_job.py and spark/batch_job.py,2026-10-08
+Watermark simulator validated against Spark,Done,Sprint 2,common/simulate.py and tests/test_simulate.py,2026-10-08
+Context enrichment and labels,Done,Sprint 2,common/enrich.py,2026-10-08
+Monitor evaluation and labeling tool,Done,Sprint 2,common/evaluate.py and analysis/label_events.py,2026-10-08
+Public monitors fires plumes wind for 3 seasons,Done,Sprint 5,history/download_context.py,2026-10-27
+PurpleAir 2020 history (40 sensors),Done,Sprint 5,history/download_purpleair.py,2026-10-27
+Validate EPA correction against monitors,Done,Sprint 5,analysis/compare_corrections.py,2026-10-27
+Kafka throughput measurement,Done,Sprint 5,analysis/measure_streaming.py,2026-10-27
+MongoDB Atlas live store and demo,Done,Sprint 5,mongo/demo_live.sh,2026-10-27
+Snowflake loader and warehouse queries,Done,Sprint 5,warehouse/load_snowflake.py,2026-10-27
+Mid-project status report,Done,Sprint 5,SmokeStream_Status_Report.pdf,2026-10-29
+Measured delay profile and 2020 rerun,Done,Sprint 7,replay/build_delay_profile.py,2026-11-10
+Airflow 3 with live context feeds,Done,Sprint 7,airflow/dags/smokestream_dags.py and history/live_context.py,2026-11-10
+Event windows July 4 2021/2024 and 2021 smoke,Done,Sprint 7,analysis/run_season.py,2026-11-10
+Streaming algorithms (Bloom FM DGIM reservoir),Done,Sprint 8,common/stream_algos.py,2026-11-16
+LSH sensor-day similarity,Done,Sprint 8,analysis/lsh_sensors.py,2026-11-16
+k-anonymity and differential privacy,Done,Sprint 8,analysis/privacy_tradeoff.py,2026-11-16
+Data poisoning test,Done,Sprint 8,analysis/poisoning_test.py,2026-11-16
+IEEE LaTeX report,Done,Sprint 8,paper/report/smokestream_report.tex,2026-11-17
+Slides,Done,Sprint 8,SmokeStream_Slides.pptx,2026-11-17
+Score RQ3 with two labelers,To Do,Backlog,data/labels/,
+Delay-profile sensitivity runs,To Do,Backlog,analysis/run_season.py --profile fast|slow,
+Sybil-resistant quality check,To Do,Backlog,,
