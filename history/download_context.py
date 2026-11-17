@@ -48,7 +48,7 @@ from history.download_purpleair import REGIONS, SEASONS  # noqa: E402
 
 RAW = ROOT / "data" / "raw"
 HISTORY = ROOT / "data" / "history"
-USER_AGENT = "SmokeStream research project (San Jose State University; vrajp8918@gmail.com)"
+USER_AGENT = "SmokeStream research project (San Jose State University)"
 
 # Fires and wind matter beyond the study area: smoke travels ~150 km.
 CONTEXT_MARGIN_DEG = (2.0, 1.5)  # lon, lat
