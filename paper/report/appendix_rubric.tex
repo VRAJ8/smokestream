@@ -10,7 +10,7 @@ Repository: \url{https://github.com/VRAJ8/smokestream}. Paths below are relative
 
 \item \textbf{Discussion / Q\&A.} In class.
 
-\item \textbf{Demo.} (1) \texttt{mongo/demo\_live.sh}: replays the September 10--11, 2020 smoke through Kafka and Spark into MongoDB Atlas and runs live \$geoNear ``AQI near SJSU'' queries while it streams; (2) the Airflow UI (\texttt{airflow/run\_airflow.sh}) with runs of the live ingest and backfill DAGs; (3) \texttt{analysis/stream\_summaries.py --kafka} printing live Bloom, Flajolet--Martin and DGIM summaries from the same topic; (4) warehouse queries in \texttt{sql/warehouse\_queries.sql}. [Elevator pitch video: link, if recorded.]
+\item \textbf{Demo.} (1) \texttt{mongo/demo\_live.sh}: replays the September 10--11, 2020 smoke through Kafka and Spark into MongoDB Atlas and runs live \$geoNear ``AQI near SJSU'' queries while it streams; (2) the Airflow UI (\texttt{airflow/run\_airflow.sh}) with runs of the live ingest and backfill DAGs; (3) \texttt{analysis/stream\_summaries.py --kafka} printing live Bloom, Flajolet--Martin and DGIM summaries from the same topic; (4) Snowflake: 6.28 million rows loaded, \texttt{verify} matching the Python results on all 65 settings, and the queries in \texttt{sql/warehouse\_queries.sql}. [Elevator pitch video: link, if recorded.]
 
 \item \textbf{Report.} This document, IEEE Computer Society template, written without code listings or screenshots; figures are generated from the analysis outputs by \repo{paper/make\_figures.py}.
 

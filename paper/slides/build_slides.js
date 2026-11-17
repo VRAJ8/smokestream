@@ -238,6 +238,20 @@ async function main() {
   stat(s, "2,411", "windows into MongoDB Atlas from 14 h of Sept 2020 smoke at 120×", 6.5, 2.7, 3.0, C.accent1, "Windows stat");
   body(s, "Most latency is designed waiting, not the system.", { x: 6.5, y: 4.15, w: 3.0, h: 0.8, fontSize: 13, italic: true });
 
+  // Warehouse
+  s = content("Snowflake warehouse: loaded and self-checking",
+    "Star schema with an SCD Type 2 sensor dimension. 6.28 million rows in 3.5 minutes on an X-Small warehouse. " +
+    "The loader recomputes RQ1 in SQL and fails unless it matches Python: all 65 settings matched. Showcase: smokiest day near SJSU via H3 + ST_DWITHIN.");
+  stat(s, "6.28 M", "rows in 11 tables: 4.0 M hexagon windows from 11 runs, readings, monitors, context", 0.5, 1.15, 4.3, C.accent2, "Rows stat");
+  stat(s, "65 / 65", "stream settings where Snowflake SQL matches Python (max RMSE gap 4e-16)", 0.5, 2.4, 4.3, C.accent1, "Verify stat");
+  stat(s, "3.5 min", "full reload on an X-Small warehouse; replace-by-slice, never duplicates", 0.5, 3.65, 4.3, C.accent3, "Load stat", 32);
+  card(s, 5.2, 1.3, 4.3, 3.6, "Query card");
+  s.addText("Smokiest day within 10 km of SJSU", { isTextBox: true, x: 5.45, y: 1.5, w: 3.9, h: 0.45, fontSize: 16, bold: true, color: C.text1, margin: 0 });
+  s.addText("H3 cell centers + ST_DWITHIN, hindsight baseline, 60-min windows", { isTextBox: true, x: 5.45, y: 1.95, w: 3.9, h: 0.45, fontSize: 12, color: C.text2, margin: 0 });
+  s.addText("Aug 19, 2020", { isTextBox: true, x: 5.45, y: 2.55, w: 3.9, h: 0.7, fontSize: 34, bold: true, color: C.accent1, margin: 0, fontFace: THEME.headFontFace });
+  s.addText("hexagon peak 216 µg/m³ (AQI 290), during the SCU Lightning Complex", { isTextBox: true, x: 5.45, y: 3.3, w: 3.9, h: 0.7, fontSize: 13, color: C.text2, margin: 0, valign: "top" });
+  s.addText("DIM_SENSOR · DIM_H3_CELL · DIM_TIME · DIM_PIPELINE_CONFIG · FACT_READING · FACT_HEX_WINDOW · FACT_ALERT · monitors · fires · plumes · wind", { isTextBox: true, x: 5.45, y: 4.05, w: 3.9, h: 0.7, fontSize: 10, color: C.accent4, margin: 0, valign: "top" });
+
   // 11. Streaming algorithms
   s = content("Streaming algorithms on the live stream",
     "All four run over the replayed Kafka stream in arrival order, checked against exact answers. Bloom catches every duplicate delivery at 14 bits per key. " +
