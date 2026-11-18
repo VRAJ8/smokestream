@@ -24,6 +24,15 @@ OUT_DATA = ROOT / "data" / "out"
 RUNS = [("2020-measured", "2020 season", "#0072B2", "o"), ("2021-smoke-measured", "2021 smoke", "#D55E00", "s"),
         ("2021-july4-measured", "2021 July 4", "#009E73", "^"), ("2024-july4-measured", "2024 July 4", "#CC79A7", "D")]
 
+# Neutral colors and the file suffix; main() redraws everything in a dark variant for the slides.
+STYLE = {"ink": "#333333", "muted": "#555555", "suffix": "", "dark": False}
+DARK_SWAP = {"#0072B2": "#56B4E9"}  # Okabe-Ito blue is too dim on a dark background; its sky blue is not
+
+
+def c(color):
+    return DARK_SWAP.get(color, color) if STYLE["dark"] else color
+
+
 plt.rcParams.update({"font.size": 8, "axes.titlesize": 8, "axes.labelsize": 8, "legend.fontsize": 7,
                      "xtick.labelsize": 7, "ytick.labelsize": 7, "axes.spines.top": False,
                      "axes.spines.right": False, "savefig.bbox": "tight", "savefig.dpi": 300})
@@ -35,9 +44,18 @@ def sweeps():
 
 
 def save(fig, name):
-    for ext in ("pdf", "png"):
-        fig.savefig(OUT / f"{name}.{ext}")
+    if STYLE["dark"]:
+        fig.savefig(OUT / f"{name}{STYLE['suffix']}.png", transparent=True)
+    else:
+        for ext in ("pdf", "png"):
+            fig.savefig(OUT / f"{name}.{ext}")
     plt.close(fig)
+
+
+def dark_mode():
+    STYLE.update(ink="#E6E8EC", muted="#AEB4BE", suffix="_dark", dark=True)
+    plt.rcParams.update({"text.color": "#E6E8EC", "axes.labelcolor": "#E6E8EC", "axes.edgecolor": "#8A919C",
+                         "xtick.color": "#C5CAD3", "ytick.color": "#C5CAD3", "grid.color": "#8A919C"})
 
 
 def frontier(d):
@@ -45,10 +63,10 @@ def frontier(d):
     base = d[(d["qc_history"] == 120) & (d["context_refresh"] == 60)]
     for label, name, color, marker in RUNS:
         g = base[base["season"] == label].sort_values("decision_latency_min")
-        ax.plot(g["decision_latency_min"], g["rmse_ugm3"], marker=marker, color=color, ls="none", ms=4.5,
+        ax.plot(g["decision_latency_min"], g["rmse_ugm3"], marker=marker, color=c(color), ls="none", ms=4.5,
                 alpha=0.85, label=name)
     for x, text in ((31, "10-min windows,\nwatermark 0/5/15 min"), (51, "30-min\nwindows"), (81, "60-min\nwindows")):
-        ax.annotate(text, (x, 0.68), ha="center", va="bottom", fontsize=6.5, color="#555555")
+        ax.annotate(text, (x, 0.68), ha="center", va="bottom", fontsize=6.5, color=STYLE["muted"])
     ax.set_ylim(0, 0.8)
     ax.set_xlabel("Decision latency after window start (min)")
     ax.set_ylabel("RMSE vs. hindsight (µg/m³)")
@@ -62,7 +80,7 @@ def context(d):
     g = d[(d["window"] == 10) & (d["watermark"] == 5) & (d["qc_history"] == 120)]
     for label, name, color, marker in RUNS:
         s = g[g["season"] == label].sort_values("context_refresh")
-        ax.plot(s["context_refresh"], 100 * s["label_match"], marker=marker, color=color, lw=1, ms=4, label=name)
+        ax.plot(s["context_refresh"], 100 * s["label_match"], marker=marker, color=c(color), lw=1, ms=4, label=name)
     ax.set_xscale("log")
     ax.set_xticks([15, 60, 360], ["15", "60", "360"])
     ax.xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
@@ -79,7 +97,7 @@ def privacy():
     d = d[d["epsilon"] != "none"].assign(epsilon=lambda x: x["epsilon"].astype(float))
     for k, color, marker in ((1, "#999999", "o"), (3, "#0072B2", "s"), (5, "#D55E00", "^")):
         s = d[d["k"] == k].sort_values("epsilon")
-        ax.plot(s["epsilon"], 100 * s["alert_recall"], marker=marker, color=color, lw=1, ms=4,
+        ax.plot(s["epsilon"], 100 * s["alert_recall"], marker=marker, color=c(color), lw=1, ms=4,
                 label=f"k = {k} ({100 * s['published_share'].iloc[0]:.0f}% of hexagon-hours published)")
     ax.set_xscale("log")
     ax.set_xticks([0.1, 0.5, 1, 2, 10], ["0.1", "0.5", "1", "2", "10"])
@@ -117,9 +135,9 @@ def coherence():
     for i, (cls, name) in enumerate(order):
         v = d[d["class"] == cls]["coherence"]
         jitter = [(j % 5 - 2) * 0.05 for j in range(len(v))]
-        ax.scatter([i + j for j in jitter], v, s=12, color="#0072B2" if cls != "smoke" else "#D55E00", alpha=0.75)
-        ax.plot([i - 0.25, i + 0.25], [v.mean()] * 2, color="#333333", lw=1.2)
-        ax.text(i + 0.3, v.mean(), f"{v.mean():.2f}", va="center", fontsize=6.5, color="#333333")
+        ax.scatter([i + j for j in jitter], v, s=12, color=c("#0072B2") if cls != "smoke" else "#D55E00", alpha=0.75)
+        ax.plot([i - 0.25, i + 0.25], [v.mean()] * 2, color=STYLE["ink"], lw=1.2)
+        ax.text(i + 0.3, v.mean(), f"{v.mean():.2f}", va="center", fontsize=6.5, color=STYLE["ink"])
     ax.set_xticks(range(len(order)), [f"{n}\n({(d['class'] == c).sum()} days)" for c, n in order])
     ax.set_ylabel("Coherence")
     ax.grid(axis="y", alpha=0.25, lw=0.5)
@@ -143,7 +161,7 @@ def dgim_trace():
             est.append(dg.count())
             exact.append(sum(window))
     fig, ax = plt.subplots(figsize=(3.4, 1.8))
-    ax.plot(xs, exact, color="#333333", lw=1.2, label="Exact (10,000 bits)")
+    ax.plot(xs, exact, color=STYLE["ink"], lw=1.2, label="Exact (10,000 bits)")
     ax.plot(xs, est, color="#D55E00", lw=0.9, label=f"DGIM ({dg.nbytes} bytes at the end)")
     ax.set_ylabel("Elevated readings\namong last 10,000")
     ax.legend(frameon=False, loc="upper left")
@@ -155,12 +173,15 @@ def dgim_trace():
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     d = sweeps()
-    frontier(d)
-    context(d)
-    privacy()
-    latency_split()
-    coherence()
-    dgim_trace()
+    for mode in ("light", "dark"):
+        if mode == "dark":
+            dark_mode()
+        frontier(d)
+        context(d)
+        privacy()
+        latency_split()
+        coherence()
+        dgim_trace()
     shutil.copy(OUT_DATA / "overview" / "season_2020_compact.png", OUT / "season_2020.png")
     print(f"Figures in {OUT}")
 
