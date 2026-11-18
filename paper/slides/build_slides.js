@@ -395,8 +395,10 @@ async function main() {
   const roles = ["Conceptualization", "Methodology", "Software", "Validation", "Formal analysis", "Investigation",
     "Data curation", "Visualization", "Writing: original draft", "Writing: review & editing", "Project administration"];
   const head = (t) => ({ text: t, options: { bold: true, color: "FFFFFF", fill: { color: C.accent1 } } });
-  s.addTable([[head("CRediT role"), head("Contributor"), head("Degree")],
-    ...roles.map((r) => [r, "Vraj Patel", "Lead"])], { x: 1.5, y: 1.1, w: 7.0, colW: [3.4, 2.1, 1.5], fontSize: 11, color: C.text2,
+  const shared = new Set(["Validation", "Writing: review & editing"]);
+  s.addTable([[head("CRediT role"), head("Contributors"), head("Degree")],
+    ...roles.map((r) => shared.has(r) ? [r, "Vraj Patel, Brandon Moriguchi", "Lead; supporting"] : [r, "Vraj Patel", "Lead"])],
+    { x: 1.0, y: 1.1, w: 8.0, colW: [3.0, 3.2, 1.8], fontSize: 11, color: C.text2,
     border: { type: "solid", color: LINE, pt: 1 }, rowH: 0.33, valign: "middle", objectName: "CRediT table" });
 
   // 18. Conclusion
