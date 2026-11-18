@@ -341,12 +341,12 @@ async function main() {
 
   // 17. CRediT
   s = content("Contributions (CRediT)",
-    "Contributor Roles Taxonomy (credit.niso.org). Shares to be filled in by the team.");
+    "Contributor Roles Taxonomy, credit.niso.org: who led each role.");
   const roles = ["Conceptualization", "Methodology", "Software", "Validation", "Formal analysis", "Investigation",
-    "Data curation", "Writing: original draft", "Writing: review & editing", "Visualization", "Project administration"];
+    "Data curation", "Visualization", "Writing: original draft", "Writing: review & editing", "Project administration"];
   const head = (t) => ({ text: t, options: { bold: true, color: C.background1, fill: { color: C.text1 } } });
-  s.addTable([[head("CRediT role"), head("Vraj Patel"), head("Brandon Moriguchi")],
-    ...roles.map((r) => [r, "[ %]", "[ %]"])], { x: 1.5, y: 1.1, w: 7.0, colW: [3.4, 1.8, 1.8], fontSize: 11, color: C.text2,
+  s.addTable([[head("CRediT role"), head("Contributor"), head("Degree")],
+    ...roles.map((r) => [r, "Vraj Patel", "Lead"])], { x: 1.5, y: 1.1, w: 7.0, colW: [3.4, 2.1, 1.5], fontSize: 11, color: C.text2,
     border: { type: "solid", color: HEX.lt2, pt: 1 }, rowH: 0.33, valign: "middle", objectName: "CRediT table" });
 
   // 18. Conclusion

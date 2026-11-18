@@ -10,7 +10,7 @@ Repository: \url{https://github.com/VRAJ8/smokestream}. Paths below are relative
 
 \item \textbf{Discussion / Q\&A.} In class.
 
-\item \textbf{Demo.} (1) \texttt{mongo/demo\_live.sh}: replays the September 10--11, 2020 smoke through Kafka and Spark into MongoDB Atlas and runs live \$geoNear ``AQI near SJSU'' queries while it streams; (2) the Airflow UI (\texttt{airflow/run\_airflow.sh}) with runs of the live ingest and backfill DAGs; (3) \texttt{analysis/stream\_summaries.py --kafka} printing live Bloom, Flajolet--Martin and DGIM summaries from the same topic; (4) Snowflake: 6.28 million rows loaded, \texttt{verify} matching the Python results on all 65 settings, and the queries in \texttt{sql/warehouse\_queries.sql}. [Elevator pitch video: link, if recorded.]
+\item \textbf{Demo.} (1) \texttt{mongo/demo\_live.sh}: replays the September 10--11, 2020 smoke through Kafka and Spark into MongoDB Atlas and runs live \$geoNear ``AQI near SJSU'' queries while it streams; (2) the Airflow UI (\texttt{airflow/run\_airflow.sh}) with runs of the live ingest and backfill DAGs; (3) \texttt{analysis/stream\_summaries.py --kafka} printing live Bloom, Flajolet--Martin and DGIM summaries from the same topic; (4) Snowflake: 6.28 million rows loaded, \texttt{verify} matching the Python results on all 65 settings, and the queries in \texttt{sql/warehouse\_queries.sql}.
 
 \item \textbf{Report.} This document, IEEE Computer Society template, written without code listings or screenshots; figures are generated from the analysis outputs by \repo{paper/make\_figures.py}.
 
@@ -22,17 +22,17 @@ Repository: \url{https://github.com/VRAJ8/smokestream}. Paths below are relative
 
 \item \textbf{Innovation.} A simulator of Spark's watermark semantics validated against the engine (and the previous-batch watermark finding), delay profiles measured from the live network, context freshness identified as the dominant knob, and course techniques applied to real failure modes: duplicate Kafka delivery, sensor privacy and fake sensors.
 
-\item \textbf{Teamwork.} CRediT statement in the report and on a slide. [Team to complete.]
+\item \textbf{Teamwork.} CRediT statement at the end of the report body and on a slide, role by role.
 
-\item \textbf{Pair programming.} [Team to complete with evidence, or state that it was not practiced.]
+\item \textbf{Pair programming.} Not practiced as formal pair programming.
 
-\item \textbf{Agile / scrum.} Sprint backlog by week, reconstructed from the repository history and the status report: \repo{docs/sprints.md}; a CSV for import into Trello: \repo{docs/sprint\_backlog.csv}. [Team to add the Trello board link and any meeting notes.]
+\item \textbf{Agile / scrum.} One-week sprint log from topic exploration to submission, built from dated artifacts (proposal, status report, file dates, commits), with planned-versus-done against the status report's dated plan and the open backlog: \repo{docs/sprints.md}; the backlog as a CSV for import into a board such as Trello: \repo{docs/sprint\_backlog.csv}.
 
 \item \textbf{Slides.} \texttt{SmokeStream\_Slides.pptx}, submitted with this report.
 
 \item \textbf{LaTeX.} \texttt{paper/report/smokestream\_report.tex} uses the IEEEtran class with the \texttt{compsoc} option (IEEE Computer Society template) and was written directly in LaTeX.
 
-\item \textbf{Creative presentation techniques.} Fade transitions throughout, native (editable) charts and a hand-built flow diagram instead of screenshots, large-number callouts for each finding, speaker notes on every slide, and a live four-part demo in the middle of the talk. [Team: add anything else used, e.g., an elevator-pitch video.]
+\item \textbf{Creative presentation techniques.} Fade transitions throughout, native (editable) charts and a hand-built flow diagram instead of screenshots, large-number callouts for each finding, speaker notes on every slide, and a live four-part demo in the middle of the talk.
 
 \item \textbf{Literature survey.} Section~\ref{sec:related}, organized into five subsections (smoke measurement; sensor correction; stream processing and event time; streaming algorithms and similarity search; privacy and data integrity), 38 references in IEEE style.
 
@@ -51,4 +51,4 @@ Repository: \url{https://github.com/VRAJ8/smokestream}. Paths below are relative
 \item \textbf{Flow schematic.} Fig.~\ref{fig:flow} of this report and a slide in the presentation.
 \end{enumerate}
 
-\noindent\textbf{Tools used.} Python 3.12, PySpark 4, Apache Kafka 4, MongoDB Atlas, Snowflake, Apache Airflow 3, H3, DuckDB, pandas, NumPy, Matplotlib, pytest, Git and GitHub, LaTeX (Tectonic), Homebrew. [Generative AI tools: to be listed by the team, as stated in the Use of Generative AI section.]
+\noindent\textbf{Tools used.} Python 3.12, PySpark 4, Apache Kafka 4, MongoDB Atlas, Snowflake, Apache Airflow 3, H3, DuckDB, pandas, NumPy, Matplotlib, pytest, Git and GitHub, LaTeX (Tectonic), Homebrew. Generative AI use is described in the Use of Generative AI section.
