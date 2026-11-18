@@ -46,7 +46,7 @@ Repository: \url{https://github.com/VRAJ8/smokestream}. Paths below are relative
 
 \item \textbf{Other course techniques.} Data poisoning and Sybil resistance (responsible use of crowdsourced data): \repo{analysis/poisoning\_test.py} (Section~\ref{sec:poisonres}); a Type~2 slowly changing dimension and idempotent, self-verifying warehouse loads (\repo{warehouse/load\_snowflake.py}).
 
-\item \textbf{New tools not used in homework.} [Team to confirm against the homework list:] Uber H3 hexagonal indexing, MongoDB Atlas geospatial queries and TTL indexes, Apache Airflow 3, DuckDB (local tests of the Snowflake SQL), Snowflake H3 and geospatial functions, the PurpleAir, FIRMS, HMS, IEM and AirNow data services, and Tectonic for LaTeX.
+\item \textbf{New tools not used in homework.} Our homework (HW 1.2) used Prefect, Dagster, SQLite and the Alpha Vantage API. New in this project: Uber H3 hexagonal indexing (\texttt{common/transforms.py}); DuckDB, to test the Snowflake SQL locally (\texttt{tests/test\_warehouse.py}); MongoDB Atlas geospatial and TTL indexes with \$geoNear queries (\texttt{mongo/}); Snowflake's H3 and geospatial functions (\texttt{sql/warehouse\_queries.sql}); the PurpleAir, NASA FIRMS, NOAA HMS, IEM and AirNow data services (\texttt{history/}); and Tectonic for LaTeX.
 
 \item \textbf{Flow schematic.} Fig.~\ref{fig:flow} of this report and a slide in the presentation.
 \end{enumerate}
