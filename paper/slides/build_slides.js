@@ -131,7 +131,7 @@ async function main() {
   s.addText([
     { text: "The latency–accuracy trade-off of real-time wildfire smoke detection from crowdsourced sensor streams", options: { breakLine: true } },
     { text: " ", options: { breakLine: true, fontSize: 8 } },
-    { text: "Vraj Patel  ·  Brandon Moriguchi  ·  DATA 226, Fall 2026", options: { fontSize: 13, color: C.accent3 } },
+    { text: "Vraj Patel  ·  Brandon Moriguchi  ·  DATA 226", options: { fontSize: 13, color: C.accent3 } },
   ], { placeholder: "body" });
   s.addNotes("Title. One-line framing: smoke maps are real-time systems, and nobody has measured what deciding in real time costs.");
 
