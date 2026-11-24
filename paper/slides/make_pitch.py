@@ -10,7 +10,7 @@ from pptx import Presentation
 
 # Slide number in the full deck -> narration (about 2 minutes 45 seconds in total)
 SCRIPT = {
-    1: "Hi, I'm Vraj Patel, and this is SmokeStream: how fast can a smoke alert be?",
+    1: "This is SmokeStream, by Vraj Patel and Brandon Moriguchi. The question: how fast can a smoke alert be?",
     3: "On September 9, 2020, the sky over the Bay Area turned orange. Most people checked crowdsourced "
        "PurpleAir maps, not the twenty official monitors. Those maps are real-time systems: readings arrive late, "
        "sensors drop out, and satellite fire data is hours old. The methods behind them were validated in hindsight. "
